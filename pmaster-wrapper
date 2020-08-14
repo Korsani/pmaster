@@ -1,74 +1,112 @@
 #!/usr/bin/env bash
 export MYNAME='pmaster-wrapper'
-export PM_OPTS='-dbg --no-confirm'
+#export PM_OPTS='-dbg --no-confirm'
 export PM_OPTS='-dbg'
-source /etc/colors
-export DB=/var/lib/pmaster.db
-export TABLE_STATS='pmaster_stats'
+export DB='/var/lib/pmaster.db'
+#export DB='/tmp/a.db'
+export CONFIG_VERS=1
+
+declare -A TABLES
+export TABLES
+TABLES[stats]='pmaster_stats'
+TABLES[config]='pmaster_config'
+
+export E_CODE_NOT_FREEBSD=1
+ASCII_BLD_WHITE='\e[1;37m'
+ASCII_RESET='\e[0m'
+
 if [ "$(uname -s)" != "FreeBSD" ]
 then
 	echo "Not on FreeBSD"
-	exit 1
+	exit $E_CODE_NOT_FREEBSD
 fi
-# Trick to get values of vars used by ports
+# Trick to get values of vars used by ports: make a Makefile that suck bsd.port.mk, and display vars
 get_env() {
 	local t=$(mktemp)
 	echo -e "CATEGORIES=devel\n.include <bsd.port.mk>\ninfo:\n\t@echo PORTSDIR=\$(PORTSDIR)\n\t@echo WRKDIRPREFIX=\$(WRKDIRPREFIX)\n\t@echo WITH_CCACHE_BUILD=\$(WITH_CCACHE_BUILD)" > $t
 	make -f $t info
 	rm -f "$t"
 }
+# Get dabatase infos of a port
 get_db_infos() {
 	local origin="$1"
 	local info="$2"
-	sqlite3 "$DB" "select $info from $TABLE_STATS where origin='$origin' order by id desc limit 1"
+	sqlite3 "$DB" "select $info from ${TABLES[stats]} where origin='$origin' order by id desc limit 1"
 }
+# Effectively build port, using ports-mgmt/portmaster
 build_pkg() {
-	pkg="$1"
+	local pkg="$1"
 	local t_time="$(mktemp)"
 	local t_pm="$(mktemp)"
-	lines=$(get_db_infos "$pkg" "log_size_lines")
+	local lines=$(get_db_infos "$pkg" "log_size_lines")
+	# If line size is available and progress is asked
 	if [ -n "$lines" ] && [ -n "$PROGRESS" ]
 	then
-		${DEBUG} /usr/bin/time -po $t_time portmaster $PM_OPTS $pkg | pv -l -s $lines >$t_pm
+		${DEBUG} /usr/bin/time -po $t_time portmaster $PM_OPTS $pkg | pv -l -s $lines -pet >$t_pm
 	else
 		${DEBUG} /usr/bin/time -po $t_time portmaster $PM_OPTS $pkg | tee $t_pm
 	fi
 	local ec="$?"
+	# If file made by time(1) is not empty and everything went fine...
 	if [ -s "$t_time" ] && [ $ec -eq 0 ]
 	then
 		store_stats "$pkg" "$t_time" "$t_pm"
 	fi
 	rm -f "$t_time" "$t_pm"
 }
+# Store stats to database
 store_stats() {
 	o="$1"
 	time_file="$2"
 	pm_file="$3"
-	mac=$(uname -m)
-	kvers=$(uname -K)
-	os=$(uname -s)
-	arch=$(uname -p)
-	mem=$(sysctl -n hw.physmem)
-	cfreq=$(sysctl -n dev.cpu.0.freq)
-	ccache=$(( "$WITH_CCACHE_BUILD" == "yes" ? 1 : 0 ))
+	mac=$(uname -m)		# Machine type (amd64, arm64, ...)
+	kvers=$(uname -K)	# Kerner version (1201000, ...)
+	os=$(uname -s)		# Os name (FreeBSD) (ok, useless...)
+	arch=$(uname -p)	# Arch (amd64, aarch64,...
+	mem=$(sysctl -n hw.physmem)		# Physical amount of memory
+	cfreq=$(sysctl -n dev.cpu.0.freq)	# Cpu freq. May vary by sake of powerd(8)/powerdxx(8)
+	ccache=$(( "$WITH_CCACHE_BUILD" == "yes" ? 1 : 0 ))		# Does ccache was used? As it can speed up things!
 	real=$(grep real $time_file | cut -d ' ' -f 2 | tr ',' '.')
 	user=$(grep user $time_file | cut -d ' ' -f 2 | tr ',' '.')
 	sys=$(grep sys $time_file | cut -d ' ' -f 2 | tr ',' '.')
+	# Count line numbers (for pv(1) )
 	ls_line=$(wc -l "$pm_file" | awk '{print $1}')
 	set -x
-	sqlite3 "$DB" "insert into pmaster_stats (origin,time_real,time_sys,time_user,portmaster_options,os,mac,kernel_vers,arch,cpu_freq,memory,ccache,log_size_lines) values ('$o','$real','$sys','$user','$PM_OPTS','$os','$mac','$kvers','$arch','$cfreq','$mem',$ccache,$ls_line);"
+	sqlite3 "$DB" "insert into ${TABLES[stats]} (origin,time_real,time_sys,time_user,portmaster_options,os,mac,kernel_vers,arch,cpu_freq,memory,ccache,log_size_lines) values ('$o','$real','$sys','$user','$PM_OPTS','$os','$mac','$kvers','$arch','$cfreq','$mem',$ccache,$ls_line);"
 	set +x
 }
+# Update db to the given version
+update_db() {
+	local to_vers="$1"
+	# Search for the relevant sql instructions
+	local sql="$(egrep "^#SQL_UPDATE_TABLE:$to_vers:" "$0" | cut -d ':' -f 3)"
+	if sqlite3 "$DB" "$sql"
+	then
+		sqlite3 "$DB" "update ${TABLES[config]} set value=$to_vers where key='config_vers';"
+	fi
+}
+# Check db existence and tables
 check_db() {
-	for table in $(egrep '^#SQL' "$0" | cut -d ':' -f 2)
+	for table in "${!TABLES[@]}"
 	do
-		if [ -z "$(sqlite3 "$DB" "SELECT name FROM sqlite_master WHERE type='table' AND name='$table';")" ]
+		if [ -z "$(sqlite3 "$DB" "SELECT name FROM sqlite_master WHERE type='table' AND name='${TABLES[$table]}';")" ]
 		then
-			sql="$(egrep "^#SQL:$table:" "$0" | cut -d ':' -f 3)"
-			echo "$DB: Creating $table"
+			sql="$(egrep "^#SQL_CREATE_TABLE:${TABLES[$table]}:" "$0" | cut -d ':' -f 3)"
+			echo "Creating table ${TABLES[$table]}"
 			sqlite3 "$DB" "$sql"
 		fi
 	done
+	vers=$(sqlite3 "$DB" "select value from ${TABLES[config]} where key='config_vers';")
+	if [ "$vers" != "$CONFIG_VERS" ]
+	then
+		for v in $(seq $((vers+1)) $CONFIG_VERS)
+		do
+			echo "Updating db from $vers to $v"
+			update_db "$v"
+			vers="$v"
+			done
+	fi
+	set +x
 }
 
 _usage() {
@@ -99,8 +137,9 @@ do
 	echo -e "# ${ASCII_BLD_WHITE}$pkg${ASCII_RESET}: building "
 	build_pkg "$pkg"
 done
-#SQL:pmaster_stats:CREATE TABLE pmaster_stats (id integer primary key autoincrement, timestamp timestamp DEFAULT CURRENT_TIMESTAMP, origin text, time_real float, time_user float, time_sys float,portmaster_options text, mac text,os text, kernel_vers text, arch text, cpu_freq integer, memory integer, ccache bool, log_size_lines integer);
-#SQL:pmaster_config:CREATE TABLE pmaster_config (key text, value text);
+#SQL_CREATE_TABLE:pmaster_stats:CREATE TABLE pmaster_stats (id integer primary key autoincrement, timestamp timestamp DEFAULT CURRENT_TIMESTAMP, origin text, time_real float, time_user float, time_sys float,portmaster_options text, mac text,os text, kernel_vers text, arch text, cpu_freq integer, memory integer, ccache bool, log_size_lines integer);
+#SQL_CREATE_TABLE:pmaster_config:CREATE TABLE pmaster_config (key text, value text);insert into pmaster_config (key,value) values ('config_vers',1);
+#SQL_UPDATE_TABLE:1:select count(*) from pmaster_config
 #USAGE
 #USAGE \\t < %BN% >
 #USAGE
@@ -109,5 +148,3 @@ done
 #USAGE
 #USAGE \\t-p: show progress bar instead of log. Implies that compilation has been run at least once. Progress rate is different from the one displayed by pmaster-stats, as the former use the number of log lines, the latter the time taken to compile
 #USAGE \\t-n: dry run
-
-
