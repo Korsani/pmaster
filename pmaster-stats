@@ -1,0 +1,173 @@
+#!/usr/bin/env perl
+use warnings;
+use strict;
+use Data::Dumper;
+use Term::ANSIColor qw(:constants);
+use File::Temp;
+use Pod::Usage;
+use Getopt::Long;
+use DBI;
+
+use constant TABLE_STATS      => 'pmaster_stats';
+use constant TABLE_CONFIG      => 'pmaster_config';
+
+use vars qw( $HELP $EXISTS $ALL $INIT $DEBUG);
+
+my $DRIVER='SQLite';
+my $DB="$ENV{'HOME'}/pmaster.db";
+my $DSN="DBI:$DRIVER:dbname=$DB";
+
+our %env;
+die "Not of FreeBSD\n" unless ("$^O" =~ "freebsd");
+sub get_make_var {
+	my $var=shift;
+	my $uvar=uc($var);
+	my $fh=File::Temp->new();
+	print $fh "CATEGORIES=devel\n.include <bsd.port.mk>\ninfo:\n\t\@echo ".$uvar."=\$(".$uvar.")";
+	open(M,'make -f '.$fh->filename.' info|') or die "$!";
+	while (my $line=<M>) {
+		if ($line=~/^$uvar=(.*)/) {
+			return $1;
+		}
+	}
+}
+# Function to get ports(7) variable's values
+# For that, I ask a Makefile to display me vars and values
+sub get_make_vars {
+	my $dbh=shift;
+	my @vars=('PORTSDIR','WRKDIRPREFIX');
+	foreach my $var (@vars) {
+		my @res=$dbh->selectall_array('select value from '.TABLE_CONFIG.' where key="'.uc($var).'";');
+		if(scalar @res == 0) {
+			print "No var $var found in config. Getting it\n" if ($DEBUG);
+			my $value=get_make_var($var);
+			$dbh->selectall_array('insert into '.TABLE_CONFIG.' (key,value) values ("'.$var.'","'.$value.'");');
+			$env{$var}=$value;
+		} else {
+			$env{$var}=@{ shift @res }[0];
+		}
+	}
+}
+sub get_stats {
+	my $dbh=shift;
+	my $o=shift;
+	my $sql='select time_real from '.TABLE_STATS.' where origin="'.$o.'"';
+	my @res=$dbh->selectall_array($sql);
+	if (scalar @res == 0) {
+		return undef;
+	}
+	my $time;
+	my $n;
+	foreach my $e (@res) {
+		$time+=shift @{ $e };
+		$n++;
+	}
+	return $time/$n;
+}
+sub create_db {
+	my $dbh=shift;
+	my @sql;
+	push @sql,('CREATE TABLE pmaster_stats (id integer primary key autoincrement, timestamp timestamp DEFAULT CURRENT_TIMESTAMP, origin text, time_real float, time_user float, time_sys float,portmaster_options text, mac text,os text, kernel_vers text, arch text, cpu_freq integer, memory integer, ccache bool);');
+	push @sql,('CREATE TABLE pmaster_config (key text, value text);');
+	foreach my $sql (@sql) {
+		my @res=$dbh->selectall_array($sql);
+		print "Tables created\n";
+	}
+}
+GetOptions(
+	'help'		=> \$HELP,
+	'exists'	=> \$EXISTS,
+	'init'		=> \$INIT,
+	'all'		=> \$ALL,
+	'debug'		=> \$DEBUG
+);
+pod2usage(-verbose => 2) if ($HELP);
+
+my $dbh=DBI->connect($DSN,'','',{RaiseError => 1}) or die $DBI::errstr;
+
+if (! $dbh->selectall_array('SELECT name FROM sqlite_master WHERE type="table" AND name="'.TABLE_STATS.'";')) {
+	create_db($dbh);
+}
+
+my @pkgs;
+if (scalar @ARGV ne 0) {
+	@pkgs=@ARGV;
+}
+if ($ALL) {
+	foreach my $e ($dbh->selectall_array('select origin from '.TABLE_STATS.' group by origin;')) {
+		push @pkgs,(shift @{$e});
+	}
+}
+# Display stats of given ports
+if (scalar @pkgs > 0) {
+	foreach my $pkg (@pkgs) {
+		my $sql='select time_real from '.TABLE_STATS.' where origin="'.$pkg.'"';
+		my @res=$dbh->selectall_array($sql);
+		if (scalar @res > 0) {	
+			my @times;
+			foreach my $e (@res) {
+				push @times,(shift @{ $e });
+			}
+			printf(YELLOW.'%s'.RESET.":\n\t".CYAN."Average duration:".RESET." %0is\n\t".CYAN."Series: ".RESET."%s\n",$pkg,get_stats($dbh,$pkg),join(', ',@times));
+		}
+	}
+	exit;
+}
+get_make_vars($dbh);
+# Get folders where job is beeing done
+my @list=glob ( "$env{'WRKDIRPREFIX'}$env{'PORTSDIR'}/*/*/work" );
+foreach my $w (@list) {
+	my $port=$w;
+	$port=~s!$env{'WRKDIRPREFIX'}$env{'PORTSDIR'}/(.*)/work!$1!;
+	printf("Dealing with %s ~ %s\n",$w,$port) if ($DEBUG);
+	my $pid=`ps -a | grep -v '/usr/bin/time' |egrep '$port\$'| awk '{print \$1}'`;
+	chomp $pid;
+	if ($pid) {
+		exit 0 if ($EXISTS);
+		# When base dir has bee created?
+		my @stats=stat($env{'WRKDIRPREFIX'}.$env{'PORTSDIR'}.'/'.$port);
+		my $eta='?';my $progress='?';
+		if (my $time = get_stats($dbh,$port)) {
+			$eta=sprintf('%0i',$time-(time()-$stats[10]));
+			$progress=sprintf('%2i',($time-$eta)/$time*100);
+		}
+		printf(YELLOW."%s".RESET.":\n\t".CYAN."Started".RESET.": %s\n\t".CYAN."Elapsed".RESET.": %0is\n\t".CYAN."ETA".RESET.": %s\n\t".CYAN."Progress".RESET.": %2s%%\n",$port,scalar localtime $stats[10],time()-$stats[10],($eta eq '?'?'?' : ($eta.'s ('.scalar localtime (time()+$eta)).')'),$progress);
+	} elsif ($DEBUG) {
+		print "No pid found\n";
+	}
+}
+=pod
+
+=head1 NAME
+
+	pmaster-stats
+
+=head1 SYNOPSIS
+
+	pmaster-stats --help
+	pmaster-stats [ --exists ]
+	pmaster-stats <ports> | -a
+
+=head1 DESCRIPTION
+
+Show running portmaster(1) information.
+
+It uses a sqlite3(1) database stored in your home.
+
+=head1 OPTIONS
+
+=over
+
+=item --exists
+
+	Immediatly return with true if a compilation is running.
+
+=back
+
+=item <port>
+
+	Display stats for this port, or all (that have data) if -a.
+
+=back
+
+=cut

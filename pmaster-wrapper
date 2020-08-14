@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+# CREATE TABLE pmaster_stats (id integer primary key autoincrement, timestamp timestamp DEFAULT CURRENT_TIMESTAMP, origin text, time_real float, time_user float, time_sys float,portmaster_options text, mac text,os text, kernel_vers text, arch text, cpu_freq integer, memory integer, ccache bool);
+# CREATE TABLE pmaster_config (key text, value text);
+
+export PM_OPTS='-dbg --no-confirm'
+export PM_OPTS='-dbg'
+source /etc/colors
+if [ "$(uname -s)" != "FreeBSD" ]
+then
+	echo "Not on FreeBSD"
+	exit 1
+fi
+get_env() {
+	local t=$(mktemp)
+	echo -e "CATEGORIES=devel\n.include <bsd.port.mk>\ninfo:\n\t@echo PORTSDIR=\$(PORTSDIR)\n\t@echo WRKDIRPREFIX=\$(WRKDIRPREFIX)\n\t@echo WITH_CCACHE_BUILD=\$(WITH_CCACHE_BUILD)" > $t
+	make -f $t info
+	rm -f "$t"
+}
+build_pkg() {
+	pkg="$1"
+	local t="$(mktemp)"
+	# cat(1) is too avoid the more(1)
+	${DEBUG} /usr/bin/time -po $t portmaster $PM_OPTS $pkg
+	local ec="$?"
+	if [ -s "$t" ] && [ $ec -eq 0 ]
+	then
+		store_stats "$pkg" "$t"
+	fi
+	rm -f "$t"
+}
+store_stats() {
+	o="$1"
+	file="$2"
+	mac=$(uname -m)
+	kvers=$(uname -K)
+	os=$(uname -s)
+	arch=$(uname -p)
+	mem=$(sysctl -n hw.physmem)
+	cfreq=$(sysctl -n dev.cpu.0.freq)
+	ccache=$(( "$WITH_CCACHE_BUILD" == "yes" ? 1 : 0 ))
+	DB=/root/pmaster.db
+	real=$(grep real $file | cut -d ' ' -f 2 | tr ',' '.')
+	user=$(grep user $file | cut -d ' ' -f 2 | tr ',' '.')
+	sys=$(grep sys $file | cut -d ' ' -f 2 | tr ',' '.')
+	set -x
+	sqlite3 $DB "insert into pmaster_stats (origin,time_real,time_sys,time_user,portmaster_options,os,mac,kernel_vers,arch,cpu_freq,memory,ccache) values ('$o','$real','$sys','$user','$PM_OPTS','$os','$mac','$kvers','$arch','$cfreq','$mem',$ccache);"
+	set +x
+}
+eval $(get_env)
+while [ -n "$1" ]
+do
+	case $1 in
+		-n) DEBUG='echo';;
+		*)	PKG+=($1);;
+	esac
+	shift
+done
+for i in ${!PKG[@]}
+do
+	pkg=$(pkg info -o ${PKG[$i]} | awk '{print $2}')
+	PKG[$i]=$pkg
+done
+for pkg in ${PKG[@]}
+do
+	echo -ne "# ${ASCII_BLD_WHITE}$pkg${ASCII_RESET} "
+	set -x
+	build_pkg "$pkg"
+done
