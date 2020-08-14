@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-
+export MYNAME='pmaster-wrapper'
 export PM_OPTS='-dbg --no-confirm'
 export PM_OPTS='-dbg'
 source /etc/colors
 export DB=/var/lib/pmaster.db
+export TABLE_STATS='pmaster_stats'
 if [ "$(uname -s)" != "FreeBSD" ]
 then
 	echo "Not on FreeBSD"
@@ -16,21 +17,33 @@ get_env() {
 	make -f $t info
 	rm -f "$t"
 }
+get_db_infos() {
+	local origin="$1"
+	local info="$2"
+	sqlite3 "$DB" "select $info from $TABLE_STATS where origin='$origin' order by id desc limit 1"
+}
 build_pkg() {
 	pkg="$1"
-	local t="$(mktemp)"
-	# cat(1) is too avoid the more(1)
-	${DEBUG} /usr/bin/time -po $t portmaster $PM_OPTS $pkg
-	local ec="$?"
-	if [ -s "$t" ] && [ $ec -eq 0 ]
+	local t_time="$(mktemp)"
+	local t_pm="$(mktemp)"
+	lines=$(get_db_infos "$pkg" "log_size_lines")
+	if [ -n "$lines" ] && [ -n "$PROGRESS" ]
 	then
-		store_stats "$pkg" "$t"
+		${DEBUG} /usr/bin/time -po $t_time portmaster $PM_OPTS $pkg | pv -l -s $lines >$t_pm
+	else
+		${DEBUG} /usr/bin/time -po $t_time portmaster $PM_OPTS $pkg | tee $t_pm
 	fi
-	rm -f "$t"
+	local ec="$?"
+	if [ -s "$t_time" ] && [ $ec -eq 0 ]
+	then
+		store_stats "$pkg" "$t_time" "$t_pm"
+	fi
+	rm -f "$t_time" "$t_pm"
 }
 store_stats() {
 	o="$1"
-	file="$2"
+	time_file="$2"
+	pm_file="$3"
 	mac=$(uname -m)
 	kvers=$(uname -K)
 	os=$(uname -s)
@@ -38,11 +51,12 @@ store_stats() {
 	mem=$(sysctl -n hw.physmem)
 	cfreq=$(sysctl -n dev.cpu.0.freq)
 	ccache=$(( "$WITH_CCACHE_BUILD" == "yes" ? 1 : 0 ))
-	real=$(grep real $file | cut -d ' ' -f 2 | tr ',' '.')
-	user=$(grep user $file | cut -d ' ' -f 2 | tr ',' '.')
-	sys=$(grep sys $file | cut -d ' ' -f 2 | tr ',' '.')
+	real=$(grep real $time_file | cut -d ' ' -f 2 | tr ',' '.')
+	user=$(grep user $time_file | cut -d ' ' -f 2 | tr ',' '.')
+	sys=$(grep sys $time_file | cut -d ' ' -f 2 | tr ',' '.')
+	ls_line=$(wc -l "$pm_file" | awk '{print $1}')
 	set -x
-	sqlite3 "$DB" "insert into pmaster_stats (origin,time_real,time_sys,time_user,portmaster_options,os,mac,kernel_vers,arch,cpu_freq,memory,ccache) values ('$o','$real','$sys','$user','$PM_OPTS','$os','$mac','$kvers','$arch','$cfreq','$mem',$ccache);"
+	sqlite3 "$DB" "insert into pmaster_stats (origin,time_real,time_sys,time_user,portmaster_options,os,mac,kernel_vers,arch,cpu_freq,memory,ccache,log_size_lines) values ('$o','$real','$sys','$user','$PM_OPTS','$os','$mac','$kvers','$arch','$cfreq','$mem',$ccache,$ls_line);"
 	set +x
 }
 check_db() {
@@ -56,6 +70,12 @@ check_db() {
 		fi
 	done
 }
+
+_usage() {
+	local bn="$(basename "$0")"
+	# Mmmm? Something to say about this method?
+	egrep '^#USAGE' "$0" | sed -e 's/^#USAGE/echo -e /' -e "s!%BN%!$bn!g" | while read u ; do $u ; done
+}
 check_db
 
 eval $(get_env)
@@ -63,6 +83,8 @@ while [ -n "$1" ]
 do
 	case $1 in
 		-n) DEBUG='echo';;
+		-p) PROGRESS='y';;
+		-h) _usage;exit 0;;
 		*)	PKG+=($1);;
 	esac
 	shift
@@ -74,10 +96,18 @@ do
 done
 for pkg in ${PKG[@]}
 do
-	echo -ne "# ${ASCII_BLD_WHITE}$pkg${ASCII_RESET} "
-	set -x
+	echo -e "# ${ASCII_BLD_WHITE}$pkg${ASCII_RESET}: building "
 	build_pkg "$pkg"
 done
-#SQL:pmaster_stats:CREATE TABLE pmaster_stats (id integer primary key autoincrement, timestamp timestamp DEFAULT CURRENT_TIMESTAMP, origin text, time_real float, time_user float, time_sys float,portmaster_options text, mac text,os text, kernel_vers text, arch text, cpu_freq integer, memory integer, ccache bool);
+#SQL:pmaster_stats:CREATE TABLE pmaster_stats (id integer primary key autoincrement, timestamp timestamp DEFAULT CURRENT_TIMESTAMP, origin text, time_real float, time_user float, time_sys float,portmaster_options text, mac text,os text, kernel_vers text, arch text, cpu_freq integer, memory integer, ccache bool, log_size_lines integer);
 #SQL:pmaster_config:CREATE TABLE pmaster_config (key text, value text);
+#USAGE
+#USAGE \\t < %BN% >
+#USAGE
+#USAGE %BN% -h
+#USAGE %BN% [ -p ] [ -n ] <port>
+#USAGE
+#USAGE \\t-p: show progress bar instead of log. Implies that compilation has been run at least once. Progress rate is different from the one displayed by pmaster-stats, as the former use the number of log lines, the latter the time taken to compile
+#USAGE \\t-n: dry run
+
 
