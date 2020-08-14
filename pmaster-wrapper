@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# CREATE TABLE pmaster_stats (id integer primary key autoincrement, timestamp timestamp DEFAULT CURRENT_TIMESTAMP, origin text, time_real float, time_user float, time_sys float,portmaster_options text, mac text,os text, kernel_vers text, arch text, cpu_freq integer, memory integer, ccache bool);
-# CREATE TABLE pmaster_config (key text, value text);
 
 export PM_OPTS='-dbg --no-confirm'
 export PM_OPTS='-dbg'
 source /etc/colors
+export DB=/var/lib/pmaster.db
 if [ "$(uname -s)" != "FreeBSD" ]
 then
 	echo "Not on FreeBSD"
 	exit 1
 fi
+# Trick to get values of vars used by ports
 get_env() {
 	local t=$(mktemp)
 	echo -e "CATEGORIES=devel\n.include <bsd.port.mk>\ninfo:\n\t@echo PORTSDIR=\$(PORTSDIR)\n\t@echo WRKDIRPREFIX=\$(WRKDIRPREFIX)\n\t@echo WITH_CCACHE_BUILD=\$(WITH_CCACHE_BUILD)" > $t
@@ -38,14 +38,26 @@ store_stats() {
 	mem=$(sysctl -n hw.physmem)
 	cfreq=$(sysctl -n dev.cpu.0.freq)
 	ccache=$(( "$WITH_CCACHE_BUILD" == "yes" ? 1 : 0 ))
-	DB=/root/pmaster.db
 	real=$(grep real $file | cut -d ' ' -f 2 | tr ',' '.')
 	user=$(grep user $file | cut -d ' ' -f 2 | tr ',' '.')
 	sys=$(grep sys $file | cut -d ' ' -f 2 | tr ',' '.')
 	set -x
-	sqlite3 $DB "insert into pmaster_stats (origin,time_real,time_sys,time_user,portmaster_options,os,mac,kernel_vers,arch,cpu_freq,memory,ccache) values ('$o','$real','$sys','$user','$PM_OPTS','$os','$mac','$kvers','$arch','$cfreq','$mem',$ccache);"
+	sqlite3 "$DB" "insert into pmaster_stats (origin,time_real,time_sys,time_user,portmaster_options,os,mac,kernel_vers,arch,cpu_freq,memory,ccache) values ('$o','$real','$sys','$user','$PM_OPTS','$os','$mac','$kvers','$arch','$cfreq','$mem',$ccache);"
 	set +x
 }
+check_db() {
+	for table in $(egrep '^#SQL' "$0" | cut -d ':' -f 2)
+	do
+		if [ -z "$(sqlite3 "$DB" "SELECT name FROM sqlite_master WHERE type='table' AND name='$table';")" ]
+		then
+			sql="$(egrep "^#SQL:$table:" "$0" | cut -d ':' -f 3)"
+			echo "$DB: Creating $table"
+			sqlite3 "$DB" "$sql"
+		fi
+	done
+}
+check_db
+exit
 eval $(get_env)
 while [ -n "$1" ]
 do
@@ -66,3 +78,6 @@ do
 	set -x
 	build_pkg "$pkg"
 done
+#SQL:pmaster_stats:CREATE TABLE pmaster_stats (id integer primary key autoincrement, timestamp timestamp DEFAULT CURRENT_TIMESTAMP, origin text, time_real float, time_user float, time_sys float,portmaster_options text, mac text,os text, kernel_vers text, arch text, cpu_freq integer, memory integer, ccache bool);
+#SQL:pmaster_config:CREATE TABLE pmaster_config (key text, value text);
+
