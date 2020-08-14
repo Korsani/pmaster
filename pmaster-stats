@@ -89,7 +89,7 @@ pod2usage(-verbose => 2) if ($HELP);
 my $dbh=DBI->connect($DSN,'','',{RaiseError => 1}) or die $DBI::errstr;
 
 check_db($dbh);
-exit;
+
 my @pkgs;
 if (scalar @ARGV ne 0) {
 	@pkgs=@ARGV;
