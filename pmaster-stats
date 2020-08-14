@@ -64,18 +64,19 @@ sub get_make_vars {
 sub get_stats {
 	my $dbh=shift;
 	my $o=shift;
-	my $sql='select time_real from '.TABLE_STATS.' where origin="'.$o.'"';
+	my $sql='select avg(time_real) from '.TABLE_STATS.' where origin="'.$o.'"';
 	my @res=$dbh->selectall_array($sql);
 	if (scalar @res == 0) {
 		return undef;
+	} else {
+		return shift @{ shift @res };
 	}
-	my $time;
-	my $n;
-	foreach my $e (@res) {
-		$time+=shift @{ $e };
-		$n++;
-	}
-	return $time/$n;
+}
+sub get_port_name {
+	my $pkg=shift;
+	my $port=`pkg info -o $pkg | awk '{print \$2}'`;
+	chomp $port;
+	return $port;
 }
 GetOptions(
 	'help'		=> \$HELP,
@@ -90,6 +91,8 @@ my $dbh=DBI->connect($DSN,'','',{RaiseError => 1}) or die $DBI::errstr;
 
 check_db($dbh);
 
+# == let's run
+
 my @pkgs;
 if (scalar @ARGV ne 0) {
 	@pkgs=@ARGV;
@@ -99,17 +102,19 @@ if ($ALL) {
 		push @pkgs,(shift @{$e});
 	}
 }
+
 # Display stats of given ports
 if (scalar @pkgs > 0) {
 	foreach my $pkg (@pkgs) {
-		my $sql='select time_real from '.TABLE_STATS.' where origin="'.$pkg.'"';
+		my $port=get_port_name($pkg);
+		my $sql='select timestamp,time_real from '.TABLE_STATS.' where origin="'.$port.'"';
 		my @res=$dbh->selectall_array($sql);
 		if (scalar @res > 0) {	
 			my @times;
 			foreach my $e (@res) {
-				push @times,(shift @{ $e });
+				push @times,(join(' => ',@{ $e }));
 			}
-			printf(YELLOW.'%s'.RESET.":\n\t".CYAN."Average duration:".RESET." %0is\n\t".CYAN."Series: ".RESET."%s\n",$pkg,get_stats($dbh,$pkg),join(', ',@times));
+			printf(YELLOW.'%s'.RESET.":\n\t".CYAN."Average duration:".RESET." %0is\n\t".CYAN."Series: \n".RESET."%s\n",$port,get_stats($dbh,$port),join("\n",@times));
 		}
 	}
 	exit;
