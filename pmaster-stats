@@ -17,7 +17,7 @@ use vars qw( $HELP $EXISTS $ALL $INIT $DEBUG);
 my $DRIVER='SQLite';
 my $DSN="DBI:$DRIVER:dbname=".DB;
 my %create_table=(
-	'pmaster_stats' => "CREATE TABLE pmaster_stats (id integer primary key autoincrement, timestamp timestamp DEFAULT CURRENT_TIMESTAMP, origin text, time_real float, time_user float, time_sys float,portmaster_options text, mac text,os text, kernel_vers text, arch text, cpu_freq integer, memory integer, ccache bool);",
+	'pmaster_stats' => "CREATE TABLE pmaster_stats (id integer primary key autoincrement, timestamp timestamp DEFAULT CURRENT_TIMESTAMP, origin text, time_real float, time_user float, time_sys float,portmaster_options text, mac text,os text, kernel_vers text, arch text, cpu_freq integer, memory integer, ccache bool,log_size_lines integer);",
 	'pmaster_config' => "CREATE TABLE pmaster_config (key text, value text);"
 );
 
