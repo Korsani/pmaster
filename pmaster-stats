@@ -8,17 +8,30 @@ use Pod::Usage;
 use Getopt::Long;
 use DBI;
 
-use constant TABLE_STATS      => 'pmaster_stats';
-use constant TABLE_CONFIG      => 'pmaster_config';
+use constant TABLE_STATS	=> 'pmaster_stats';
+use constant TABLE_CONFIG	=> 'pmaster_config';
+use constant DB				=> '/var/lib/pmaster.db';
 
 use vars qw( $HELP $EXISTS $ALL $INIT $DEBUG);
 
 my $DRIVER='SQLite';
-my $DB="$ENV{'HOME'}/pmaster.db";
-my $DSN="DBI:$DRIVER:dbname=$DB";
+my $DSN="DBI:$DRIVER:dbname=".DB;
+my %create_table=(
+	'pmaster_stats' => "CREATE TABLE pmaster_stats (id integer primary key autoincrement, timestamp timestamp DEFAULT CURRENT_TIMESTAMP, origin text, time_real float, time_user float, time_sys float,portmaster_options text, mac text,os text, kernel_vers text, arch text, cpu_freq integer, memory integer, ccache bool);",
+	'pmaster_config' => "CREATE TABLE pmaster_config (key text, value text);"
+);
 
 our %env;
 die "Not of FreeBSD\n" unless ("$^O" =~ "freebsd");
+sub check_db {
+	my $dbh=shift;
+	foreach my $table (TABLE_STATS,TABLE_CONFIG) {
+		if (! $dbh->selectall_array('SELECT name FROM sqlite_master WHERE type="table" AND name="'.$table.'";')) {
+			my @res=$dbh->selectall_array($create_table{$table});
+			printf("Table %s created\n",$table);
+		}
+	}
+}
 sub get_make_var {
 	my $var=shift;
 	my $uvar=uc($var);
@@ -64,16 +77,6 @@ sub get_stats {
 	}
 	return $time/$n;
 }
-sub create_db {
-	my $dbh=shift;
-	my @sql;
-	push @sql,('CREATE TABLE pmaster_stats (id integer primary key autoincrement, timestamp timestamp DEFAULT CURRENT_TIMESTAMP, origin text, time_real float, time_user float, time_sys float,portmaster_options text, mac text,os text, kernel_vers text, arch text, cpu_freq integer, memory integer, ccache bool);');
-	push @sql,('CREATE TABLE pmaster_config (key text, value text);');
-	foreach my $sql (@sql) {
-		my @res=$dbh->selectall_array($sql);
-		print "Tables created\n";
-	}
-}
 GetOptions(
 	'help'		=> \$HELP,
 	'exists'	=> \$EXISTS,
@@ -85,10 +88,8 @@ pod2usage(-verbose => 2) if ($HELP);
 
 my $dbh=DBI->connect($DSN,'','',{RaiseError => 1}) or die $DBI::errstr;
 
-if (! $dbh->selectall_array('SELECT name FROM sqlite_master WHERE type="table" AND name="'.TABLE_STATS.'";')) {
-	create_db($dbh);
-}
-
+check_db($dbh);
+exit;
 my @pkgs;
 if (scalar @ARGV ne 0) {
 	@pkgs=@ARGV;
