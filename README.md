@@ -22,22 +22,22 @@ Copy files to your PATH, or maybe you can do:
 
 ```
 $ mkdir ~/bin
-$ cp pmaster-wrapper pmaster-stats ~/bin
+$ cp pmaster ~/bin
 # Add ~/bin to your PATH
 ```
 
 ## Running
 
-Where you'd run portmaster(8), run pmaster-wrapper:
+Where you'd run portmaster(8), run `pmaster -c`:
 
 ```
-$ pmaster-wrapper bash
+$ pmaster -c bash
 ```
 
-To see some compilation infos:
+To see some ongoing compilation infos:
 
 ```
-$ pmaster-stats
+$ pmaster
 shells/bash:
         Started: Fri Aug 14 12:10:59 2020
         Elapsed: 30s
@@ -47,13 +47,20 @@ shells/bash:
 
 ## Under the hoot
 
-An `sqlite` database is created : `/var/lib/pmaster.db`. It stores port origin and various infos, such as real time (as given by `time(1)`) and number of lines `portmaster(7)` gives.
+An `sqlite` database is created : `/var/db/pmaster.db`. It stores port origin and various infos, such as time take to build port and number of lines `portmaster(7)` gives.
 
-Each time you run `pmaster-wrapper` an entry is created. `-p` option use the number of lines to give to `pv(1)`
+Each time you run `pmaster -c` an entry is created. `-p` option use the number of lines to give to `pv(1)`
 
-`pmaster-stats` search for compilation by un-globing `${WRKDIRPREFIX}${PORTSDIR}/*/*/work` and searching for corresponding running processes. It then takes the time it was running for, and compare it with the last taken (averaged) stored in the database.
+`pmaster` search for compilation by un-globing `${WRKDIRPREFIX}${PORTSDIR}/*/*/work` and searching for corresponding running processes. It then takes the time it was running for, and compare it with the last taken (averaged) stored in the database.
 
 Of course, if it's the first compilation, nothing can be calculated...
+
+# To do
+
+- Add more error checking...
+- Find a more reliable way to detect an ongoing compilation
+- If port b is needed to compile port a, time to compile port b is included in the time to compile port a
+- And so is port compilation is waiting for a key press
 
 ## Authors
 
