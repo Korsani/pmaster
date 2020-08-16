@@ -14,7 +14,7 @@ use constant DB_DIR			=> '/var/db';
 use constant DB_VERS		=> 1;
 use constant PM_OPTS		=> '-dbg';
 
-use vars qw( $HELP $EXISTS $ALL $DEBUG $COMPILE $PROGRESS);
+use vars qw( $HELP $EXISTS $ALL $DEBUG $COMPILE $PROGRESS $LAST);
 
 die "Not of FreeBSD\n" unless ("$^O" =~ "freebsd");
 
@@ -209,7 +209,8 @@ GetOptions(
 	'all'		=> \$ALL,
 	'debug'		=> \$DEBUG,
 	'compile'	=> \$COMPILE,
-	'progress'	=> \$PROGRESS
+	'progress'	=> \$PROGRESS,
+	'last'		=> \$LAST
 );
 pod2usage(-verbose => 2) if ($HELP);
 
@@ -223,7 +224,13 @@ my @pkgs;
 if (scalar @ARGV ne 0) {
 	@pkgs=@ARGV;
 }
+if ($LAST) {
+	my $sql='select origin from '.$table{'stats'}.' order by id desc limit 1;';
+	my @e=$dbh->selectall_array($sql);
+	push @pkgs,(shift @{shift @e});
+}
 @pkgs=resolve_origin(@pkgs);
+
 # Just show stats of given ports
 if (not $COMPILE and (scalar @pkgs > 0 or $ALL)) {	# show stats about a package
 	show_stats($dbh,@pkgs);
@@ -268,7 +275,7 @@ if (not $COMPILE and (scalar @pkgs > 0 or $ALL)) {	# show stats about a package
 
 	pmaster --help
 	pmaster --exists
-	pmaster <port> | -a
+	pmaster <port> | -a | -l
 	pmaster -c <port>
 
 =head1 DESCRIPTION
@@ -285,11 +292,21 @@ It uses a sqlite3(1) database stored in your home.
 
 	Immediatly return with true if a compilation is running.
 
-=back
-
 =item <port>
 
 	Display stats for this port, or all (that have data) if -a.
+
+=item -l
+
+	Show last built package.
+
+=item -a
+
+	Show stats of all packages.
+
+=item -c
+
+	Compile a port.
 
 =back
 
