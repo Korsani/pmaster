@@ -6,56 +6,80 @@ use Term::ANSIColor qw(:constants);
 use File::Temp;
 use Pod::Usage;
 use Getopt::Long;
+use File::Copy;
 use DBI;
 
-use constant DB_FILE		=> '/var/lib/pmaster.db';
+use constant DB_FILE		=> 'pmaster.db';
+use constant DB_DIR			=> '/var/db';
 use constant DB_VERS		=> 1;
 use constant PM_OPTS		=> '-dbg';
 
 use vars qw( $HELP $EXISTS $ALL $DEBUG $COMPILE $PROGRESS);
 
+die "Not of FreeBSD\n" unless ("$^O" =~ "freebsd");
+
 my $DRIVER='SQLite';
-my $DSN="DBI:$DRIVER:dbname=".DB_FILE;
+my $DSN="DBI:$DRIVER:dbname=".DB_DIR.'/'.DB_FILE;
 my %table=(
 	'stats'=>'pmaster_stats',
 	'config'=>'pmaster_config'
 );
+# Sql statements to create table
 my %create_table=(
-	# time_user, time_sys, os are unused
+	# 'time_user', 'time_sys', 'os' are unused
 	$table{'stats'} => 'CREATE TABLE '.$table{'stats'}.' (id integer primary key autoincrement, timestamp timestamp DEFAULT CURRENT_TIMESTAMP, origin text, time_real float, time_user float, time_sys float,portmaster_options text, mac text,os text, kernel_vers text, arch text, cpu_freq integer, memory integer, ccache bool, log_size_lines integer);',
 	$table{'config'} => 'CREATE TABLE '.$table{'config'}.' (key text type uniq, value text);'
 );
+# Sql statements to update database
 my %update_table=(
 	2=>'test'
 );
 
 our %env;
-die "Not of FreeBSD\n" unless ("$^O" =~ "freebsd");
-sub check_db {
+sub check_db_tables {
 	my $dbh=shift;
+	# Let's check if tables exists
 	foreach my $table (values %table) {
 		if (! $dbh->selectall_array('SELECT name FROM sqlite_master WHERE type="table" AND name="'.$table.'";')) {
 			my @res=$dbh->selectall_array($create_table{$table});
 			printf("Table %s created\n",$table);
 		}
 	}
+}
+sub check_db_version {
+	my $dbh=shift;
 	my $sql=sprintf('select value from %s where key="%s";',$table{'config'},'db_vers');
 	my $db_vers=$dbh->selectall_array($sql);
+	# None? Maybe db is juste created
 	if($db_vers == 0) {;
 		$sql=sprintf('insert into %s (key,value) values ("db_vers",%i);',$table{'config'},DB_VERS);
 		$dbh->selectall_array($sql);
 		printf("Db version set to %i\n",DB_VERS);
-	} elsif ($db_vers < DB_VERS) {
+	} elsif ($db_vers < DB_VERS) {		# Time to upgrade!
 		foreach my $i ($db_vers+1..DB_VERS) {
 			$dbh->selectall_array($update_table{$i});
 			$sql=sprintf('update %s set value=%i where key="db_vers";',$table{'config'},$i);
 			$dbh->selectall_array($sql);
 
 		}
-	} else {
-		printf("Db version: %i\n",$db_vers);
 	}
 }
+sub check_db_path {
+	for my $dir ($ENV{'HOME'}) {
+		if ( -e $dir.'/'.DB_FILE) {
+			printf("Moving %s from %s to %s\n",DB_FILE,$dir,DB_DIR);
+			move($dir.'/'.DB_FILE,DB_DIR);
+		}
+	}
+}
+sub check_db {
+	my $dbh=shift;
+	check_db_path($dbh);
+	check_db_tables($dbh);
+	check_db_version($dbh);
+}
+# Function to get ports(7) variable's values
+# For that, I ask a Makefile to display me vars and values
 sub get_make_var {
 	my $var=shift;
 	my $uvar=uc($var);
@@ -68,8 +92,6 @@ sub get_make_var {
 		}
 	}
 }
-# Function to get ports(7) variable's values
-# For that, I ask a Makefile to display me vars and values
 sub get_make_vars {
 	my $dbh=shift;
 	my @vars=('PORTSDIR','WRKDIRPREFIX','WITH_CCACHE_BUILD');
@@ -85,6 +107,7 @@ sub get_make_vars {
 		}
 	}
 }
+# Get average compile time of a port
 sub get_port_stats {
 	my $dbh=shift;
 	my $o=shift;
@@ -96,6 +119,7 @@ sub get_port_stats {
 		return shift @{ shift @res };
 	}
 }
+# Return given field
 sub get_db_infos {
 	my $dbh=shift;
 	my $o=shift;
@@ -108,6 +132,7 @@ sub get_db_infos {
 		return @res;
 	}
 }
+# Translate arbitrary string to a port name
 sub resolve_origin {
 	my @origins;
 	while (my $pkg=shift) {
@@ -139,6 +164,7 @@ sub show_stats {
 		}
 	}
 }
+# Run compilation of a port
 sub compile_port {
 	my $dbh=shift;
 	my $port=shift;
@@ -165,7 +191,6 @@ sub compile_port {
 	if ($ec == 0) {
 		store_stats($dbh,$port,($end-$start),$lines);
 	}
-	#rm -f "$t_time" "$t_pm"
 }
 # Store stats to database
 sub store_stats {
@@ -218,7 +243,7 @@ if (not $COMPILE and (scalar @pkgs > 0 or $ALL)) {	# show stats about a package
 		printf("Dealing with %s ~ %s\n",$w,$port) if ($DEBUG);
 		# This is the best way I found to detect ongoing portmaster:
 		# There should have more at least one process with `make` and $WRKDIRPREFIX$PORTSDIR<port>/work somewhere...
-		my $npid=`ps -a | grep -v '/usr/bin/time' | grep make |grep '$w'| awk '{print \$1}'| wc -l|xargs`;
+		my $npid=`ps -a | grep -v grep | grep '$w'| awk '{print \$1}'| wc -l|xargs`;
 		chomp $npid;
 		if ($npid > 0) {
 			exit 0 if ($EXISTS);
@@ -230,8 +255,6 @@ if (not $COMPILE and (scalar @pkgs > 0 or $ALL)) {	# show stats about a package
 				$progress=sprintf('%2i',($time-$eta)/$time*100);
 			}
 			printf(YELLOW."%s".RESET.":\n\t".CYAN."Started".RESET.": %s\n\t".CYAN."Elapsed".RESET.": %0is\n\t".CYAN."ETA".RESET.": %s\n\t".CYAN."Progress".RESET.": %2s%%\n",$port,scalar localtime $stats[10],time()-$stats[10],($eta eq '?'?'?' : ($eta.'s ('.scalar localtime (time()+$eta)).')'),$progress);
-		} elsif ($DEBUG) {
-			print "No pid found\n";
 		}
 	}
 }
