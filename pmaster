@@ -1,0 +1,273 @@
+#!/usr/bin/env perl
+use warnings;
+use strict;
+use Data::Dumper;
+use Term::ANSIColor qw(:constants);
+use File::Temp;
+use Pod::Usage;
+use Getopt::Long;
+use DBI;
+
+use constant DB_FILE		=> '/var/lib/pmaster.db';
+use constant DB_VERS		=> 1;
+use constant PM_OPTS		=> '-dbg';
+
+use vars qw( $HELP $EXISTS $ALL $DEBUG $COMPILE $PROGRESS);
+
+my $DRIVER='SQLite';
+my $DSN="DBI:$DRIVER:dbname=".DB_FILE;
+my %table=(
+	'stats'=>'pmaster_stats',
+	'config'=>'pmaster_config'
+);
+my %create_table=(
+	# time_user, time_sys, os are unused
+	$table{'stats'} => 'CREATE TABLE '.$table{'stats'}.' (id integer primary key autoincrement, timestamp timestamp DEFAULT CURRENT_TIMESTAMP, origin text, time_real float, time_user float, time_sys float,portmaster_options text, mac text,os text, kernel_vers text, arch text, cpu_freq integer, memory integer, ccache bool, log_size_lines integer);',
+	$table{'config'} => 'CREATE TABLE '.$table{'config'}.' (key text type uniq, value text);'
+);
+my %update_table=(
+	2=>'test'
+);
+
+our %env;
+die "Not of FreeBSD\n" unless ("$^O" =~ "freebsd");
+sub check_db {
+	my $dbh=shift;
+	foreach my $table (values %table) {
+		if (! $dbh->selectall_array('SELECT name FROM sqlite_master WHERE type="table" AND name="'.$table.'";')) {
+			my @res=$dbh->selectall_array($create_table{$table});
+			printf("Table %s created\n",$table);
+		}
+	}
+	my $sql=sprintf('select value from %s where key="%s";',$table{'config'},'db_vers');
+	my $db_vers=$dbh->selectall_array($sql);
+	if($db_vers == 0) {;
+		$sql=sprintf('insert into %s (key,value) values ("db_vers",%i);',$table{'config'},DB_VERS);
+		$dbh->selectall_array($sql);
+		printf("Db version set to %i\n",DB_VERS);
+	} elsif ($db_vers < DB_VERS) {
+		foreach my $i ($db_vers+1..DB_VERS) {
+			$dbh->selectall_array($update_table{$i});
+			$sql=sprintf('update %s set value=%i where key="db_vers";',$table{'config'},$i);
+			$dbh->selectall_array($sql);
+
+		}
+	} else {
+		printf("Db version: %i\n",$db_vers);
+	}
+}
+sub get_make_var {
+	my $var=shift;
+	my $uvar=uc($var);
+	my $fh=File::Temp->new();
+	print $fh "CATEGORIES=devel\n.include <bsd.port.mk>\ninfo:\n\t\@echo ".$uvar."=\$(".$uvar.")";
+	open(M,'make -f '.$fh->filename.' info|') or die "$!";
+	while (my $line=<M>) {
+		if ($line=~/^$uvar=(.*)/) {
+			return $1;
+		}
+	}
+}
+# Function to get ports(7) variable's values
+# For that, I ask a Makefile to display me vars and values
+sub get_make_vars {
+	my $dbh=shift;
+	my @vars=('PORTSDIR','WRKDIRPREFIX','WITH_CCACHE_BUILD');
+	foreach my $var (@vars) {
+		my @res=$dbh->selectall_array('select value from '.$table{'config'}.' where key="'.uc($var).'";');
+		if(scalar @res == 0) {
+			print "No var $var found in config. Getting it\n" if ($DEBUG);
+			my $value=get_make_var($var);
+			$dbh->selectall_array('insert into '.$table{'config'}.' (key,value) values ("'.$var.'","'.$value.'");');
+			$env{$var}=$value;
+		} else {
+			$env{$var}=@{ shift @res }[0];
+		}
+	}
+}
+sub get_port_stats {
+	my $dbh=shift;
+	my $o=shift;
+	my $sql='select avg(time_real) from '.$table{'stats'}.' where origin="'.$o.'"';
+	my @res=$dbh->selectall_array($sql);
+	if (scalar @res == 0) {
+		return undef;
+	} else {
+		return shift @{ shift @res };
+	}
+}
+sub get_db_infos {
+	my $dbh=shift;
+	my $o=shift;
+	my $field=shift;
+	my $sql='select id,'.$field.' from '.$table{'stats'}.' where origin="'.$o.'" order by id';
+	my @res=$dbh->selectall_array($sql);
+	if (scalar @res == 0) {
+		return undef;
+	} else {
+		return @res;
+	}
+}
+sub resolve_origin {
+	my @origins;
+	while (my $pkg=shift) {
+		my $port=`pkg info -o $pkg | awk '{print \$2}'`;
+		chomp $port;
+		push @origins,($port);
+	}
+	return @origins;
+}
+sub show_stats {
+	my $dbh=shift;
+	my @pkgs=@_;
+	if ($ALL) {
+		foreach my $e ($dbh->selectall_array('select origin from '.$table{'stats'}.' group by origin order by origin;')) {
+			push @pkgs,(shift @{$e});
+		}
+	}
+
+	# Display stats of given ports
+	foreach my $port (@pkgs) {
+		my $sql='select timestamp,time_real from '.$table{'stats'}.' where origin="'.$port.'"';
+		my @res=$dbh->selectall_array($sql);
+		if (scalar @res > 0) {	
+			my @times;
+			foreach my $e (@res) {
+				push @times,(join(' => ',@{ $e }));
+			}
+			printf(YELLOW.'%s'.RESET.":\n\t".CYAN."Average duration:".RESET." %0is\n\t".CYAN."Series: \n".RESET."%s\n",$port,get_port_stats($dbh,$port),join("\n",@times));
+		}
+	}
+}
+sub compile_port {
+	my $dbh=shift;
+	my $port=shift;
+	my @a=get_db_infos($dbh,$port,'log_size_lines');
+	# Returns [ [ id, field ] [ ... ] ]
+	# And I want the field of the last element
+	my $lines=@{ $a[-1]}[1];
+	# If line size is available and progress is asked
+	my $start=time();
+	my $ec=0;
+	if ($lines and $PROGRESS) {
+		$ec=system('portmaster',PM_OPTS,$port," | pv -l -s $lines -pet");
+	} else {
+		$lines=0;
+		#$ec=system('portmaster',PM_OPTS,$port);
+		open(P,'portmaster '.PM_OPTS.' '.$port.'|') or $ec=1;
+		while(<P>) {
+			$lines++;
+			print;
+		}
+	}
+	my $end=time();
+	# If everything went fine...
+	if ($ec == 0) {
+		store_stats($dbh,$port,($end-$start),$lines);
+	}
+	#rm -f "$t_time" "$t_pm"
+}
+# Store stats to database
+sub store_stats {
+	my $dbh=shift; my $o=shift; my $real=shift; my $lines=shift;
+	my $mac=`uname -m|xargs echo -n`;		# Machine type (amd64, arm64, ...)
+	my $kvers=`uname -K|xargs`;	# Kerner version (1201000, ...)
+	my $arch=`uname -p|xargs`;	# Arch (amd64, aarch64,...
+	my $mem=`sysctl -n hw.physmem|xargs`;		# Physical amount of memory
+	my $cfreq=`sysctl -n dev.cpu.0.freq|xargs`;	# Cpu freq. May vary by sake of powerd(8)/powerdxx(8)
+	my $sql=sprintf("insert into %s (origin,time_real,portmaster_options,mac,kernel_vers,arch,cpu_freq,memory,ccache,log_size_lines) values ('%s',%i,'%s','%s','%s','%s',%i,%i,%i,%i);select last_insert_rowid();",$table{'stats'},$o,	$real,PM_OPTS, `uname -m| xargs echo -n`,`uname -K|xargs echo -n`,`uname -p | xargs echo -n`,`sysctl -n dev.cpu.0.freq| xargs echo -n`, `sysctl -n hw.physmem| xargs echo -n`, $env{'WITH_CCACHE_BUILD'} eq 'yes' ? 1 : 0, $lines);
+	$dbh->selectall_array($sql);
+}
+GetOptions(
+	'help'		=> \$HELP,
+	'exists'	=> \$EXISTS,
+	'all'		=> \$ALL,
+	'debug'		=> \$DEBUG,
+	'compile'	=> \$COMPILE,
+	'progress'	=> \$PROGRESS
+);
+pod2usage(-verbose => 2) if ($HELP);
+
+my $dbh=DBI->connect($DSN,'','',{RaiseError => 1}) or die $DBI::errstr;
+
+check_db($dbh);
+
+# == let's run
+
+my @pkgs;
+if (scalar @ARGV ne 0) {
+	@pkgs=@ARGV;
+}
+@pkgs=resolve_origin(@pkgs);
+# Just show stats of given ports
+if (not $COMPILE and (scalar @pkgs > 0 or $ALL)) {	# show stats about a package
+	show_stats($dbh,@pkgs);
+	exit 0;
+} elsif ($COMPILE) {		# Compile ports
+	get_make_vars($dbh);
+	foreach my $port (@pkgs) {
+		compile_port($dbh,$port);
+	}
+} else {					# Show what portmaster is currently doing
+	get_make_vars($dbh);
+	# Get folders where job is beeing done
+	my @list=glob ( "$env{'WRKDIRPREFIX'}$env{'PORTSDIR'}/*/*/work" );
+	foreach my $w (@list) {
+		my $port=$w;
+		$port=~s!$env{'WRKDIRPREFIX'}$env{'PORTSDIR'}/(.*)/work!$1!;
+		printf("Dealing with %s ~ %s\n",$w,$port) if ($DEBUG);
+		# This is the best way I found to detect ongoing portmaster:
+		# There should have more at least one process with `make` and $WRKDIRPREFIX$PORTSDIR<port>/work somewhere...
+		my $npid=`ps -a | grep -v '/usr/bin/time' | grep make |grep '$w'| awk '{print \$1}'| wc -l|xargs`;
+		chomp $npid;
+		if ($npid > 0) {
+			exit 0 if ($EXISTS);
+			# When base dir has been created?
+			my @stats=stat($env{'WRKDIRPREFIX'}.$env{'PORTSDIR'}.'/'.$port);
+			my $eta='?';my $progress='?';
+			if (my $time = get_port_stats($dbh,$port)) {
+				$eta=sprintf('%0i',$time-(time()-$stats[10]));
+				$progress=sprintf('%2i',($time-$eta)/$time*100);
+			}
+			printf(YELLOW."%s".RESET.":\n\t".CYAN."Started".RESET.": %s\n\t".CYAN."Elapsed".RESET.": %0is\n\t".CYAN."ETA".RESET.": %s\n\t".CYAN."Progress".RESET.": %2s%%\n",$port,scalar localtime $stats[10],time()-$stats[10],($eta eq '?'?'?' : ($eta.'s ('.scalar localtime (time()+$eta)).')'),$progress);
+		} elsif ($DEBUG) {
+			print "No pid found\n";
+		}
+	}
+}
+=pod
+
+=head1 NAME
+
+	pmaster
+
+=head1 SYNOPSIS
+
+	pmaster --help
+	pmaster --exists
+	pmaster <port> | -a
+	pmaster -c <port>
+
+=head1 DESCRIPTION
+
+Show running portmaster(1) information.
+
+It uses a sqlite3(1) database stored in your home.
+
+=head1 OPTIONS
+
+=over
+
+=item --exists
+
+	Immediatly return with true if a compilation is running.
+
+=back
+
+=item <port>
+
+	Display stats for this port, or all (that have data) if -a.
+
+=back
+
+=cut
