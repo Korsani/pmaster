@@ -36,13 +36,17 @@ my %update_table=(
 );
 
 our %env;
+sub disp {
+	my $msg=shift;
+	printf("[pmaster] ".$msg."\n",@_);
+}
 sub check_db_tables {
 	my $dbh=shift;
 	# Let's check if tables exists
 	foreach my $table (values %table) {
 		if (! $dbh->selectall_array('SELECT name FROM sqlite_master WHERE type="table" AND name="'.$table.'";')) {
 			my @res=$dbh->selectall_array($create_table{$table});
-			printf("Table %s created\n",$table);
+			disp("Table %s created",$table);
 		}
 	}
 }
@@ -54,7 +58,7 @@ sub check_db_version {
 	if($db_vers == 0) {;
 		$sql=sprintf('insert into %s (key,value) values ("db_vers",%i);',$table{'config'},DB_VERS);
 		$dbh->selectall_array($sql);
-		printf("Db version set to %i\n",DB_VERS);
+		disp("Db version set to %i",DB_VERS);
 	} elsif ($db_vers < DB_VERS) {		# Time to upgrade!
 		foreach my $i ($db_vers+1..DB_VERS) {
 			$dbh->selectall_array($update_table{$i});
@@ -67,7 +71,7 @@ sub check_db_version {
 sub check_db_path {
 	for my $dir ($ENV{'HOME'}) {
 		if ( -e $dir.'/'.DB_FILE) {
-			printf("Moving %s from %s to %s\n",DB_FILE,$dir,DB_DIR);
+			disp("Moving %s from %s to %s",DB_FILE,$dir,DB_DIR);
 			move($dir.'/'.DB_FILE,DB_DIR);
 		}
 	}
@@ -98,7 +102,7 @@ sub get_make_vars {
 	foreach my $var (@vars) {
 		my @res=$dbh->selectall_array('select value from '.$table{'config'}.' where key="'.uc($var).'";');
 		if(scalar @res == 0) {
-			print "No var $var found in config. Getting it\n" if ($DEBUG);
+			disp("No var %s found in config. Getting it",$var) if ($DEBUG);
 			my $value=get_make_var($var);
 			$dbh->selectall_array('insert into '.$table{'config'}.' (key,value) values ("'.$var.'","'.$value.'");');
 			$env{$var}=$value;
@@ -160,7 +164,7 @@ sub show_stats {
 			foreach my $e (@res) {
 				push @times,(join(' => ',@{ $e }));
 			}
-			printf(YELLOW.'%s'.RESET.":\n\t".CYAN."Average duration:".RESET." %0is\n\t".CYAN."Series: \n".RESET."%s\n",$port,get_port_stats($dbh,$port),join("\n",@times));
+			disp(YELLOW.'%s'.RESET.":\n\t".CYAN."Average duration:".RESET." %0is\n\t".CYAN."Series: \n".RESET."%s",$port,get_port_stats($dbh,$port),join("\n",@times));
 		}
 	}
 }
@@ -185,11 +189,15 @@ sub compile_port {
 			$lines++;
 			print;
 		}
+		close(P);
+		$ec=$?;
 	}
 	my $end=time();
 	# If everything went fine...
 	if ($ec == 0) {
 		store_stats($dbh,$port,($end-$start),$lines);
+	} else {
+		disp("Something failed with %s",$port);
 	}
 }
 # Store stats to database
@@ -247,7 +255,7 @@ if (not $COMPILE and (scalar @pkgs > 0 or $ALL)) {	# show stats about a package
 	foreach my $w (@list) {
 		my $port=$w;
 		$port=~s!$env{'WRKDIRPREFIX'}$env{'PORTSDIR'}/(.*)/work!$1!;
-		printf("Dealing with %s ~ %s\n",$w,$port) if ($DEBUG);
+		disp("Dealing with %s ~ %s",$w,$port) if ($DEBUG);
 		# This is the best way I found to detect ongoing portmaster:
 		# There should have more at least one process with `make` and $WRKDIRPREFIX$PORTSDIR<port>/work somewhere...
 		my $npid=`ps -a | grep -v grep | grep '$w'| awk '{print \$1}'| wc -l|xargs`;
@@ -261,7 +269,7 @@ if (not $COMPILE and (scalar @pkgs > 0 or $ALL)) {	# show stats about a package
 				$eta=sprintf('%0i',$time-(time()-$stats[10]));
 				$progress=sprintf('%2i',($time-$eta)/$time*100);
 			}
-			printf(YELLOW."%s".RESET.":\n\t".CYAN."Started".RESET.": %s\n\t".CYAN."Elapsed".RESET.": %0is\n\t".CYAN."ETA".RESET.": %s\n\t".CYAN."Progress".RESET.": %2s%%\n",$port,scalar localtime $stats[10],time()-$stats[10],($eta eq '?'?'?' : ($eta.'s ('.scalar localtime (time()+$eta)).')'),$progress);
+			disp(YELLOW."%s".RESET.":\n\t".CYAN."Started".RESET.": %s\n\t".CYAN."Elapsed".RESET.": %0is\n\t".CYAN."ETA".RESET.": %s\n\t".CYAN."Progress".RESET.": %2s%%",$port,scalar localtime $stats[10],time()-$stats[10],($eta eq '?'?'?' : ($eta.'s ('.scalar localtime (time()+$eta)).')'),$progress);
 		}
 	}
 }
