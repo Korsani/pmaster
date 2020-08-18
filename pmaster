@@ -36,9 +36,11 @@ my %update_table=(
 );
 
 our %env;
+our %exit;
 sub disp {
 	my $msg=shift;
-	printf("[pmaster] ".$msg."\n",@_);
+	$msg=sprintf('['.YELLOW.'pmaster'.RESET.']('.CYAN.caller(0).RESET.') '.BRIGHT_WHITE.$msg.RESET."\n",@_);
+	print($msg);
 }
 sub check_db_tables {
 	my $dbh=shift;
@@ -179,6 +181,7 @@ sub compile_port {
 	# If line size is available and progress is asked
 	my $start=time();
 	my $ec=0;
+	disp('Building %s',$port);
 	if ($lines and $PROGRESS) {
 		$ec=system('portmaster',PM_OPTS,$port," | pv -l -s $lines -pet");
 	} else {
@@ -197,8 +200,9 @@ sub compile_port {
 	if ($ec == 0) {
 		store_stats($dbh,$port,($end-$start),$lines);
 	} else {
-		disp("Something failed with %s",$port);
+		disp('Something failed with %s building: portmaster exits with %i',$port,$ec/256);
 	}
+	return($ec/256);
 }
 # Store stats to database
 sub store_stats {
@@ -246,8 +250,10 @@ if (not $COMPILE and (scalar @pkgs > 0 or $ALL)) {	# show stats about a package
 } elsif ($COMPILE) {		# Compile ports
 	get_make_vars($dbh);
 	foreach my $port (@pkgs) {
-		compile_port($dbh,$port);
+		$exit{$port}=compile_port($dbh,$port);
 	}
+	disp('Summary:');
+	map {disp(" > %s:%i",$_,$exit{$_});} @pkgs;
 } else {					# Show what portmaster is currently doing
 	get_make_vars($dbh);
 	# Get folders where job is beeing done
