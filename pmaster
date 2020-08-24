@@ -36,6 +36,11 @@ if ($VERSION) {
 	exit 0;
 }
 
+if ($HELP) {
+	pod2usage(-verbose => 2);
+	exit;
+}
+
 my $DRIVER='SQLite';
 my $DSN="DBI:$DRIVER:dbname=".DB_DIR.'/'.DB_FILE;
 my %table=(
@@ -169,11 +174,24 @@ sub get_db_infos {
 }
 # Translate arbitrary string to a port name
 sub resolve_origin {
+	my $dbh=shift;
 	my @origins;
+	my $kvers=`uname -K`;
+	$kvers=~s/^(..).*/$1/;
 	while (my $pkg=shift) {
-		my $port=`pkg info -o $pkg | awk '{print \$2}'`;
+		my $port=`pkg info -o $pkg 2>/dev/null | awk '{print \$2}'`;
 		chomp $port;
-		push @origins,($port);
+		if ($port) {
+			push @origins,($port);
+		} else {
+			open(I,"<$env{PORTSDIR}/INDEX-$kvers") or die "$!";
+			while (my $line = <I>) {
+				if ($line =~ /^$pkg-.*\|(.*?)\|.*/) {
+					push @origins,((split(/\|/,$line))[1]);
+				}
+			}
+			close(I);
+		}
 	}
 	return @origins;
 }
@@ -281,7 +299,6 @@ sub get_running_port {
 		}
 	}
 }
-pod2usage(-verbose => 2) if ($HELP);
 
 my $dbh=DBI->connect($DSN,'','',{RaiseError => 1}) or die $DBI::errstr;
 
@@ -298,21 +315,20 @@ if ($LAST) {
 	my @e=$dbh->selectall_array($sql);
 	push @pkgs,(shift @{shift @e});
 }
-@pkgs=resolve_origin(@pkgs);
+get_make_vars($dbh);
+@pkgs=resolve_origin($dbh,@pkgs);
 
 # Just show stats of given ports
 if (not $COMPILE and (scalar @pkgs > 0 or $ALL)) {	# show stats about a package
 	show_stats($dbh,@pkgs);
 	exit 0;
 } elsif ($COMPILE) {		# Compile ports
-	get_make_vars($dbh);
 	foreach my $port (@pkgs) {
 		$exit{$port}=compile_port($dbh,$port);
 	}
 	disp2({msg=>'Summary:'});
 	map {disp2({msg=>' > %s:%i',params=>[$_,$exit{$_}]});} @pkgs;
 } else {					# Show what portmaster is currently doing
-	get_make_vars($dbh);
 	# Get folders where job is beeing done
 	#(my $port,my $start_time,my $eta, my $progress)=get_running_port();
 	my $a=get_running_port($dbh);
