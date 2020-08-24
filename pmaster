@@ -2,7 +2,7 @@
 use warnings;
 use strict;
 use Data::Dumper;
-use Term::ANSIColor qw(:constants);
+use Term::ANSIColor qw(:constants colorstrip);
 use File::Temp;
 use Pod::Usage;
 use Getopt::Long;
@@ -18,7 +18,23 @@ use constant PM_OPTS	=> '-dbg';
 
 use vars qw( $HELP $EXISTS $ALL $DEBUG $COMPILE $PROGRESS $LAST $VERSION $WAIT);
 
-die "Not of FreeBSD\n" unless ("$^O" =~ "freebsd");
+die "Not on FreeBSD\n" unless ("$^O" =~ "freebsd");
+
+GetOptions(
+	'help'		=> \$HELP,
+	'exists'	=> \$EXISTS,
+	'all'		=> \$ALL,
+	'debug'		=> \$DEBUG,
+	'compile'	=> \$COMPILE,
+	'progress'	=> \$PROGRESS,
+	'last'		=> \$LAST,
+	'version'	=> \$VERSION,
+	'wait=i'	=> \$WAIT
+);
+if ($VERSION) {
+	printf("v%s\n",VERSION);
+	exit 0;
+}
 
 my $DRIVER='SQLite';
 my $DSN="DBI:$DRIVER:dbname=".DB_DIR.'/'.DB_FILE;
@@ -39,11 +55,7 @@ my %update_table=(
 
 our %env;
 our %exit;
-sub disp {
-	my $msg=shift;
-	$msg=sprintf('['.YELLOW.'pmaster'.RESET.']('.CYAN.caller(0).RESET.') '.BRIGHT_WHITE.$msg.RESET."\n",@_);
-	print($msg);
-}
+
 sub disp2 {
 	my %msg=%{shift()};
 	$msg{'prefix'}=1 if (not defined $msg{'prefix'});
@@ -53,7 +65,11 @@ sub disp2 {
 		$msg{'prefix'}='';
 	}
 	my $msg=sprintf('%s'.BRIGHT_WHITE.$msg{'msg'}.RESET."\n",$msg{'prefix'},@{$msg{'params'}});
-	print($msg);
+	if (-t STDOUT) {
+		print($msg);
+	} else {
+		print(colorstrip($msg));
+	}
 }
 sub check_db_tables {
 	my $dbh=shift;
@@ -264,21 +280,6 @@ sub get_running_port {
 			return {port=>$port,start_time=>$stats[10],eta=>$eta,progress=>$progress};
 		}
 	}
-}
-GetOptions(
-	'help'		=> \$HELP,
-	'exists'	=> \$EXISTS,
-	'all'		=> \$ALL,
-	'debug'		=> \$DEBUG,
-	'compile'	=> \$COMPILE,
-	'progress'	=> \$PROGRESS,
-	'last'		=> \$LAST,
-	'version'	=> \$VERSION,
-	'wait=i'	=> \$WAIT
-);
-if ($VERSION) {
-	printf("v%s\n",VERSION);
-	exit 0;
 }
 pod2usage(-verbose => 2) if ($HELP);
 
