@@ -8,14 +8,15 @@ use Pod::Usage;
 use Getopt::Long;
 use File::Copy;
 use DBI;
-use constant VERSION	=> 0.1;
+use Sys::Syslog qw( :standard :macros );
+use constant VERSION	=> 0.2;
 
 use constant DB_FILE	=> 'pmaster.db';
 use constant DB_DIR		=> '/var/db';
 use constant DB_VERS	=> 1;
 use constant PM_OPTS	=> '-dbg';
 
-use vars qw( $HELP $EXISTS $ALL $DEBUG $COMPILE $PROGRESS $LAST $VERSION);
+use vars qw( $HELP $EXISTS $ALL $DEBUG $COMPILE $PROGRESS $LAST $VERSION $WAIT);
 
 die "Not of FreeBSD\n" unless ("$^O" =~ "freebsd");
 
@@ -227,6 +228,43 @@ sub store_stats {
 	my $sql=sprintf("insert into %s (origin,time_real,portmaster_options,mac,kernel_vers,arch,cpu_freq,memory,ccache,log_size_lines) values ('%s',%i,'%s','%s','%s','%s',%i,%i,%i,%i);select last_insert_rowid();",$table{'stats'},$o,	$real,PM_OPTS, `uname -m| xargs echo -n`,`uname -K|xargs echo -n`,`uname -p | xargs echo -n`,`sysctl -n dev.cpu.0.freq| xargs echo -n`, `sysctl -n hw.physmem| xargs echo -n`, $env{'WITH_CCACHE_BUILD'} eq 'yes' ? 1 : 0, $lines);
 	$dbh->selectall_array($sql);
 }
+sub loop_on_me {
+	my $dbh=shift;
+	my $a=shift;
+	while (1) {
+		if ($a) {
+			my $mess=sprintf('%s:%s%%',$a->{'port'},$a->{'progress'});
+			syslog(LOG_INFO,$mess);
+		}
+		#printf("%s\n",$mess);
+		$a=get_running_port($dbh);
+		sleep($WAIT);
+	}
+}
+sub get_running_port {
+	my $dbh=shift,
+	my @list=glob ( "$env{'WRKDIRPREFIX'}$env{'PORTSDIR'}/*/*/work" );
+	foreach my $w (@list) {
+		my $port=$w;
+		$port=~s!$env{'WRKDIRPREFIX'}$env{'PORTSDIR'}/(.*)/work!$1!;
+		disp2({msg=>'Dealing with %s ~ %s',params=>[$w,$port]}) if ($DEBUG);
+		# This is the best way I found to detect ongoing portmaster:
+		# There should have more at least one process with `make` and $WRKDIRPREFIX$PORTSDIR<port>/work somewhere...
+		my $npid=`ps -a | grep -v grep | grep '$w'| awk '{print \$1}'| wc -l|xargs`;
+		chomp $npid;
+		if ($npid > 0) {
+			exit 0 if ($EXISTS);
+			# When base dir has been created?
+			my @stats=stat($env{'WRKDIRPREFIX'}.$env{'PORTSDIR'}.'/'.$port);
+			my $eta='?';my $progress='?';
+			if (my $time = get_port_stats($dbh,$port)) {
+				$eta=sprintf('%0i',$time-(time()-$stats[10]));
+				$progress=sprintf('%2i',($time-$eta)/$time*100);
+			}
+			return {port=>$port,start_time=>$stats[10],eta=>$eta,progress=>$progress};
+		}
+	}
+}
 GetOptions(
 	'help'		=> \$HELP,
 	'exists'	=> \$EXISTS,
@@ -235,7 +273,8 @@ GetOptions(
 	'compile'	=> \$COMPILE,
 	'progress'	=> \$PROGRESS,
 	'last'		=> \$LAST,
-	'version'	=> \$VERSION
+	'version'	=> \$VERSION,
+	'wait=i'	=> \$WAIT
 );
 if ($VERSION) {
 	printf("v%s\n",VERSION);
@@ -274,28 +313,20 @@ if (not $COMPILE and (scalar @pkgs > 0 or $ALL)) {	# show stats about a package
 } else {					# Show what portmaster is currently doing
 	get_make_vars($dbh);
 	# Get folders where job is beeing done
-	my @list=glob ( "$env{'WRKDIRPREFIX'}$env{'PORTSDIR'}/*/*/work" );
-	foreach my $w (@list) {
-		my $port=$w;
-		$port=~s!$env{'WRKDIRPREFIX'}$env{'PORTSDIR'}/(.*)/work!$1!;
-		disp2({msg=>'Dealing with %s ~ %s',params=>[$w,$port]}) if ($DEBUG);
-		# This is the best way I found to detect ongoing portmaster:
-		# There should have more at least one process with `make` and $WRKDIRPREFIX$PORTSDIR<port>/work somewhere...
-		my $npid=`ps -a | grep -v grep | grep '$w'| awk '{print \$1}'| wc -l|xargs`;
-		chomp $npid;
-		if ($npid > 0) {
-			exit 0 if ($EXISTS);
-			# When base dir has been created?
-			my @stats=stat($env{'WRKDIRPREFIX'}.$env{'PORTSDIR'}.'/'.$port);
-			my $eta='?';my $progress='?';
-			if (my $time = get_port_stats($dbh,$port)) {
-				$eta=sprintf('%0i',$time-(time()-$stats[10]));
-				$progress=sprintf('%2i',($time-$eta)/$time*100);
-			}
-			disp2({prefix=>0,msg=>YELLOW.'%s'.RESET.":\n\t".CYAN.'Started'.RESET.": %s\n\t".CYAN.'Elapsed'.RESET.": %0is\n\t".CYAN.'ETA'.RESET.": %s\n\t".CYAN.'Progress'.RESET.": %2s%%",params=>[$port,scalar localtime $stats[10],time()-$stats[10],($eta eq '?'?'?' : ($eta.'s ('.scalar localtime (time()+$eta)).')'),$progress]});
+	#(my $port,my $start_time,my $eta, my $progress)=get_running_port();
+	my $a=get_running_port($dbh);
+	openlog('pmaster','ndelay,pid','local0');
+	if ($a) {
+		if (not ($WAIT)) {
+			disp2({prefix=>0,msg=>YELLOW.'%s'.RESET.":\n\t".CYAN.'Started'.RESET.": %s\n\t".CYAN.'Elapsed'.RESET.": %0is\n\t".CYAN.'ETA'.RESET.": %s\n\t".CYAN.'Progress'.RESET.": %2s%%",params=>[$a->{'port'},scalar localtime $a->{'start_time'},time()-$a->{'start_time'},($a->{'eta'} eq '?'?'?' : ($a->{'eta'}.'s ('.scalar localtime (time()+$a->{'eta'})).')'),$a->{'progress'}]});
+		} else {
+			loop_on_me($dbh,$a);
 		}
+	} elsif ($WAIT) {
+		loop_on_me($dbh,{port=>'(not working)',progress=>'?',eta=>0});
 	}
 }
+
 =pod
 
 =head1 NAME
@@ -305,7 +336,7 @@ if (not $COMPILE and (scalar @pkgs > 0 or $ALL)) {	# show stats about a package
 =head1 SYNOPSIS
 
 	pmaster --help
-	pmaster --exists
+	pmaster [ --exists ] [ -w <n> ]
 	pmaster <port> | -a | -l
 	pmaster -c <port>
 
@@ -338,6 +369,10 @@ It uses a sqlite3(1) database stored in your home.
 =item -c
 
 	Compile a port.
+
+=item -w
+
+	Wait forever, logging to syslog every B<n> seconds what's going on.
 
 =back
 
