@@ -32,7 +32,7 @@ GetOptions(
 	'wait=i'	=> \$WAIT
 );
 if ($VERSION) {
-	printf("v%s\n",VERSION);
+	printf("%s\n",VERSION);
 	exit 0;
 }
 
