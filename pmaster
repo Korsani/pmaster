@@ -9,7 +9,7 @@ use Getopt::Long;
 use File::Copy;
 use DBI;
 use Sys::Syslog qw( :standard :macros );
-use constant VERSION	=> 0.2;
+use constant VERSION	=> 0.3;
 
 use constant DB_FILE	=> 'pmaster.db';
 use constant DB_DIR		=> '/var/db';
@@ -181,16 +181,20 @@ sub resolve_origin {
 	while (my $pkg=shift) {
 		my $port=`pkg info -o $pkg 2>/dev/null | awk '{print \$2}'`;
 		chomp $port;
-		if ($port) {
-			push @origins,($port);
-		} else {
+		if ( ! $port) {
+			# So it's a package I don't know about. Let's search in INDEX
 			open(I,"<$env{PORTSDIR}/INDEX-$kvers") or die "$!";
 			while (my $line = <I>) {
-				if ($line =~ /^$pkg-.*\|(.*?)\|.*/) {
-					push @origins,((split(/\|/,$line))[1]);
+				if ($line =~ /^$pkg-/) {
+					$port=((split(/\|/,$line))[1]);
 				}
 			}
 			close(I);
+		}
+		if (! $port) {
+			disp2({msg=>'No origin found for '.BRIGHT_WHITE.'%s'.RESET,params=>[$pkg]});
+		} else {
+			push @origins,($port);
 		}
 	}
 	return @origins;
@@ -326,8 +330,10 @@ if (not $COMPILE and (scalar @pkgs > 0 or $ALL)) {	# show stats about a package
 	foreach my $port (@pkgs) {
 		$exit{$port}=compile_port($dbh,$port);
 	}
-	disp2({msg=>'Summary:'});
-	map {disp2({msg=>' > %s:%i',params=>[$_,$exit{$_}]});} @pkgs;
+	if (scalar keys %exit > 0) {
+		disp2({msg=>'Summary:'});
+		map {disp2({msg=>' > %s:%i',params=>[$_,$exit{$_}]});} @pkgs;
+	}
 } else {					# Show what portmaster is currently doing
 	# Get folders where job is beeing done
 	#(my $port,my $start_time,my $eta, my $progress)=get_running_port();
