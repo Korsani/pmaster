@@ -16,7 +16,7 @@ use constant DB_DIR		=> '/var/db';
 use constant DB_VERS	=> 1;
 use constant PM_OPTS	=> '-dbg';
 
-use vars qw( $HELP $EXISTS $ALL $DEBUG $COMPILE $PROGRESS $LAST $VERSION $WAIT);
+use vars qw( $HELP $EXISTS $ALL $DEBUG $CURRENT $PROGRESS $LAST $VERSION $WAIT $STATS);
 
 die "Not on FreeBSD\n" unless ("$^O" =~ "freebsd");
 
@@ -25,11 +25,12 @@ GetOptions(
 	'exists'	=> \$EXISTS,
 	'all'		=> \$ALL,
 	'debug'		=> \$DEBUG,
-	'compile'	=> \$COMPILE,
+	'current'	=> \$CURRENT,
 	'progress'	=> \$PROGRESS,
 	'last'		=> \$LAST,
 	'version'	=> \$VERSION,
-	'wait=i'	=> \$WAIT
+	'wait=i'	=> \$WAIT,
+	'stats'		=> \$STATS
 );
 if ($VERSION) {
 	printf("%s\n",VERSION);
@@ -318,23 +319,16 @@ if ($LAST) {
 	my $sql='select origin from '.$table{'stats'}.' order by id desc limit 1;';
 	my @e=$dbh->selectall_array($sql);
 	push @pkgs,(shift @{shift @e});
+	$STATS=1;
 }
 get_make_vars($dbh);
 @pkgs=resolve_origin($dbh,@pkgs);
 
 # Just show stats of given ports
-if (not $COMPILE and (scalar @pkgs > 0 or $ALL)) {	# show stats about a package
+if ($STATS and (scalar @pkgs > 0 or $ALL)) {	# show stats about a package
 	show_stats($dbh,@pkgs);
 	exit 0;
-} elsif ($COMPILE) {		# Compile ports
-	foreach my $port (@pkgs) {
-		$exit{$port}=compile_port($dbh,$port);
-	}
-	if (scalar keys %exit > 0) {
-		disp2({msg=>'Summary:'});
-		map {disp2({msg=>' > %s:%i',params=>[$_,$exit{$_}]});} @pkgs;
-	}
-} else {					# Show what portmaster is currently doing
+} elsif ($CURRENT) {					# Show what portmaster is currently doing
 	# Get folders where job is beeing done
 	#(my $port,my $start_time,my $eta, my $progress)=get_running_port();
 	my $a=get_running_port($dbh);
@@ -348,6 +342,14 @@ if (not $COMPILE and (scalar @pkgs > 0 or $ALL)) {	# show stats about a package
 	} elsif ($WAIT) {
 		loop_on_me($dbh,{port=>'(not working)',progress=>'?',eta=>0});
 	}
+} else {		# Compile ports
+	foreach my $port (@pkgs) {
+		$exit{$port}=compile_port($dbh,$port);
+	}
+	if (scalar keys %exit > 0) {
+		disp2({msg=>'Summary:'});
+		map {disp2({msg=>' > %s:%i',params=>[$_,$exit{$_}]});} @pkgs;
+	}
 }
 
 =pod
@@ -358,10 +360,13 @@ if (not $COMPILE and (scalar @pkgs > 0 or $ALL)) {	# show stats about a package
 
 =head1 SYNOPSIS
 
+	pmaster <port>
+	pmaster --current 
+	pmaster --exists
 	pmaster --help
-	pmaster [ --exists ] [ -w <n> ]
-	pmaster <port> | -a | -l
-	pmaster -c <port>
+	pmaster --last
+	pmaster --stats <port>|--all
+	pmaster --wait <n>
 
 =head1 DESCRIPTION
 
@@ -373,29 +378,33 @@ It uses a sqlite3(1) database stored in your home.
 
 =over
 
-=item --exists
-
-	Immediatly return with true if a compilation is running.
-
 =item <port>
 
-	Display stats for this port, or all (that have data) if -a.
+Build this port with portmaster(1)
 
-=item -l
+=item --current
 
-	Show last built package.
+Show currently building port
 
-=item -a
+=item --exists
 
-	Show stats of all packages.
+Immediatly return with true if a compilation is running.
 
-=item -c
+=item --help
 
-	Compile a port.
+Help?
 
-=item -w
+=item --last
 
-	Wait forever, logging to syslog every B<n> seconds what's going on.
+Show last built port. Implies B<--stats>
+
+=item --stats
+
+Show statistics about port(s), or all if B<--all> is specified
+
+=item --wait
+
+Wait forever, logging to syslog every B<n> seconds what's going on
 
 =back
 
