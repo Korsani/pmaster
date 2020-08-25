@@ -238,7 +238,7 @@ sub compile_port {
 	} else {
 		$lines=0;
 		#$ec=system('portmaster',PM_OPTS,$port);
-		open(P,'portmaster '.PM_OPTS.' '.$port.'|') or $ec=1;
+		open(P,'portmaster --no-confirm '.PM_OPTS.' '.$port.'|') or $ec=1;
 		while(<P>) {
 			$lines++;
 			print;
