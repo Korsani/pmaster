@@ -370,7 +370,7 @@ if ($STATS and (scalar @pkgs > 0 or $ALL)) {	# show stats about a package
 
 =head1 DESCRIPTION
 
-Show running portmaster(1) information.
+Show running portmaster(8) information.
 
 It uses a sqlite3(1) database stored in your home.
 
@@ -380,7 +380,7 @@ It uses a sqlite3(1) database stored in your home.
 
 =item <port>
 
-Build this port with portmaster(1)
+Build this port with portmaster(8)
 
 =item --current
 
