@@ -8,7 +8,7 @@ If you use Gentoo :penguin:, you probably use genlop(1), which, among other thin
 
 There ~~is~~ was no such equivalent on FreeBSD when using `ports-mgmt/portmaster`.
 
-Here come pmaster collection!
+Here come `pmaster`!
 
 ### Prerequisites
 
@@ -28,16 +28,16 @@ $ cp pmaster ~/bin
 
 ## Running
 
-Where you'd run portmaster(8), run `pmaster -c`:
+Where you'd run portmaster(8), run `pmaster`:
 
 ```
-$ pmaster -c bash
+$ pmaster bash
 ```
 
 To see some ongoing compilation infos:
 
 ```
-$ pmaster
+$ pmaster -c
 shells/bash:
         Started: Fri Aug 14 12:10:59 2020
         Elapsed: 30s
@@ -49,7 +49,7 @@ shells/bash:
 
 An `sqlite` database is created : `/var/db/pmaster.db`. It stores port origin and various infos, such as time take to build port and number of lines `portmaster(7)` gives.
 
-Each time you run `pmaster -c` an entry is created. `-p` option use the number of lines to give to `pv(1)`
+Each time you run `pmaster` an entry is created. `-p` option use the number of lines to give to `pv(1)`
 
 `pmaster` search for compilation by un-globing `${WRKDIRPREFIX}${PORTSDIR}/*/*/work` and searching for corresponding running processes. It then takes the time it was running for, and compare it with the last taken (averaged) stored in the database.
 
