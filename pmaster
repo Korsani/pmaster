@@ -70,7 +70,7 @@ sub disp2 {
 	} else {
 		$msg{'prefix'}='';
 	}
-	my $msg=sprintf('%s'.BRIGHT_WHITE.$msg{'msg'}.RESET."\n",$msg{'prefix'},@{$msg{'params'}});
+	my $msg=sprintf('%s'.$msg{'msg'}."\n",$msg{'prefix'},@{$msg{'params'}});
 	if (-t STDOUT) {
 		print($msg);
 	} else {
@@ -180,13 +180,15 @@ sub resolve_origin {
 	my $kvers=`uname -K`;
 	$kvers=~s/^(..).*/$1/;
 	while (my $pkg=shift) {
+		disp2({msg=>'Resolving %s',params=>[$pkg]}) if ($DEBUG);
 		my $port=`pkg info -o $pkg 2>/dev/null | awk '{print \$2}'`;
 		chomp $port;
 		if ( ! $port) {
+			disp2({msg=>'Not found by pkg(1). Searching in INDEX'}) if ($DEBUG);
 			# So it's a package I don't know about. Let's search in INDEX
 			open(I,"<$env{PORTSDIR}/INDEX-$kvers") or die "$!";
 			while (my $line = <I>) {
-				if ($line =~ /^$pkg-/) {
+				if ($line =~ /\/$pkg\|/) {
 					$port=((split(/\|/,$line))[1]);
 				}
 			}
@@ -195,6 +197,7 @@ sub resolve_origin {
 		if (! $port) {
 			disp2({msg=>'No origin found for '.BRIGHT_WHITE.'%s'.RESET,params=>[$pkg]});
 		} else {
+			disp2({msg=>'%s ~> %s',params=>[$pkg,$port]}) if ($DEBUG);
 			push @origins,($port);
 		}
 	}
@@ -233,7 +236,7 @@ sub compile_port {
 	# If line size is available and progress is asked
 	my $start=time();
 	my $ec=0;
-	disp2({msg=>'Building %s',params=>[$port]});
+	disp2({msg=>'Building '.BRIGHT_WHITE.'%s'.RESET,params=>[$port]});
 	if ($lines and $PROGRESS) {
 		$ec=system('portmaster',PM_OPTS,$port," | pv -l -s $lines -pet");
 	} else {
@@ -289,7 +292,7 @@ sub get_running_port {
 		disp2({msg=>'Dealing with %s ~ %s',params=>[$w,$port]}) if ($DEBUG);
 		# This is the best way I found to detect ongoing portmaster:
 		# There should have more at least one process with `make` and $WRKDIRPREFIX$PORTSDIR<port>/work somewhere...
-		my $npid=`ps -a | grep -v grep | grep '$w'| awk '{print \$1}'| wc -l|xargs`;
+		my $npid=`ps -a | grep -v grep | grep '$w' | awk '{print \$1}'| wc -l|xargs`;
 		chomp $npid;
 		if ($npid > 0) {
 			exit 0 if ($EXISTS);
@@ -343,6 +346,9 @@ if ($STATS and (scalar @pkgs > 0 or $ALL)) {	# show stats about a package
 		loop_on_me($dbh,{port=>'(not working)',progress=>'?',eta=>0});
 	}
 } else {		# Compile ports
+	if (scalar @pkgs == 0) {
+		disp2({msg=>'Nothing to build'});
+	}
 	foreach my $port (@pkgs) {
 		$exit{$port}=compile_port($dbh,$port);
 	}
