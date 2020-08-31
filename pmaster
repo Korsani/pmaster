@@ -332,18 +332,18 @@ if ($STATS and (scalar @pkgs > 0 or $ALL)) {	# show stats about a package
 	show_stats($dbh,@pkgs);
 	exit 0;
 } elsif ($CURRENT) {					# Show what portmaster is currently doing
-	# Get folders where job is beeing done
-	#(my $port,my $start_time,my $eta, my $progress)=get_running_port();
+	openlog('pmaster','ndelay,pid','local0');
+	my $a=get_running_port($dbh);
+	if ($a) {
+		disp2({prefix=>0,msg=>YELLOW.'%s'.RESET.":\n\t".CYAN.'Started'.RESET.": %s\n\t".CYAN.'Elapsed'.RESET.": %0is\n\t".CYAN.'ETA'.RESET.": %s\n\t".CYAN.'Progress'.RESET.": %2s%%",params=>[$a->{'port'},scalar localtime $a->{'start_time'},time()-$a->{'start_time'},($a->{'eta'} eq '?'?'?' : ($a->{'eta'}.'s ('.scalar localtime (time()+$a->{'eta'})).')'),$a->{'progress'}]});
+		}
+} elsif ($WAIT) {
 	my $a=get_running_port($dbh);
 	openlog('pmaster','ndelay,pid','local0');
 	if ($a) {
-		if (not ($WAIT)) {
-			disp2({prefix=>0,msg=>YELLOW.'%s'.RESET.":\n\t".CYAN.'Started'.RESET.": %s\n\t".CYAN.'Elapsed'.RESET.": %0is\n\t".CYAN.'ETA'.RESET.": %s\n\t".CYAN.'Progress'.RESET.": %2s%%",params=>[$a->{'port'},scalar localtime $a->{'start_time'},time()-$a->{'start_time'},($a->{'eta'} eq '?'?'?' : ($a->{'eta'}.'s ('.scalar localtime (time()+$a->{'eta'})).')'),$a->{'progress'}]});
-		} else {
-			loop_on_me($dbh,$a);
-		}
-	} elsif ($WAIT) {
-		loop_on_me($dbh,{port=>'(not working)',progress=>'?',eta=>0});
+		loop_on_me($dbh,$a);
+	} else {
+		loop_on_me($dbh,{port=>'(idle)',progress=>'?',eta=>0});
 	}
 } else {		# Compile ports
 	if (scalar @pkgs == 0) {
@@ -354,7 +354,7 @@ if ($STATS and (scalar @pkgs > 0 or $ALL)) {	# show stats about a package
 	}
 	if (scalar keys %exit > 0) {
 		disp2({msg=>'Summary:'});
-		map {disp2({msg=>' > %s:%i',params=>[$_,$exit{$_}]});} @pkgs;
+		map {disp2({msg=>' > %s:%s',params=>[$_,$exit{$_}==0?BRIGHT_GREEN.'success'.RESET:BRIGHT_RED.'failure'.RESET]});} @pkgs;
 	}
 }
 
