@@ -9,7 +9,7 @@ use Getopt::Long;
 use File::Copy;
 use DBI;
 use Sys::Syslog qw( :standard :macros );
-use constant VERSION	=> 0.3;
+use constant VERSION	=> 0.4;
 
 use constant DB_FILE	=> 'pmaster.db';
 use constant DB_DIR		=> '/var/db';
