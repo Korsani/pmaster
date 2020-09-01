@@ -16,7 +16,7 @@ use constant DB_DIR		=> '/var/db';
 use constant DB_VERS	=> 1;
 use constant PM_OPTS	=> '-dbg';
 
-use vars qw( $HELP $EXISTS $ALL $DEBUG $CURRENT $PROGRESS $LAST $VERSION $WAIT $STATS);
+use vars qw( $HELP $EXISTS $ALL $DEBUG $CURRENT $PROGRESS $LAST $VERSION $WAIT $STATS );
 
 die "Not on FreeBSD\n" unless ("$^O" =~ "freebsd");
 
@@ -60,7 +60,8 @@ my %update_table=(
 );
 
 our %env;
-our %exit;
+our %exit_code;
+our %time_taken;
 
 sub disp2 {
 	my %msg=%{shift()};
@@ -226,7 +227,7 @@ sub show_stats {
 	}
 }
 # Run compilation of a port
-sub compile_port {
+sub build_port {
 	my $dbh=shift;
 	my $port=shift;
 	my @a=get_db_infos($dbh,$port,'log_size_lines');
@@ -251,14 +252,21 @@ sub compile_port {
 		$ec=$?;
 	}
 	my $end=time();
+	parse_stats($dbh,$port,($end-$start));
 	# If everything went fine...
 	if ($ec == 0) {
 		store_stats($dbh,$port,($end-$start),$lines);
 	} else {
 		disp2({msg=>'Something failed with %s building: portmaster exits with %i',params=>[$port,$ec/256]});
 	}
-	return($ec/256);
+	return(($ec/256,$end-$start));
 }
+sub parse_stats {
+	my $dbh=shift; my $o=shift; my $real=shift;
+	my $time=get_port_stats($dbh,$o);
+	disp2({msg=>'%s: '.BRIGHT_WHITE.'%is'.RESET.'? %is! d:%is s:%-.02f%%',params=>[$o,$time,$real,$real-$time,$real*100/$time]});
+}
+
 # Store stats to database
 sub store_stats {
 	my $dbh=shift; my $o=shift; my $real=shift; my $lines=shift;
@@ -350,11 +358,11 @@ if ($STATS and (scalar @pkgs > 0 or $ALL)) {	# show stats about a package
 		disp2({msg=>'Nothing to build'});
 	}
 	foreach my $port (@pkgs) {
-		$exit{$port}=compile_port($dbh,$port);
+		($exit_code{$port},$time_taken{$port})=build_port($dbh,$port);
 	}
-	if (scalar keys %exit > 0) {
+	if (scalar keys %exit_code > 0) {
 		disp2({msg=>'Summary:'});
-		map {disp2({msg=>' > %s:%s',params=>[$_,$exit{$_}==0?BRIGHT_GREEN.'success'.RESET:BRIGHT_RED.'failure'.RESET]});} @pkgs;
+		map {disp2({msg=>'- %s:%s (in %is)',params=>[$_,$exit_code{$_}==0?BRIGHT_GREEN.'success'.RESET:BRIGHT_RED.'failure'.RESET,$time_taken{$_}]});} @pkgs;
 	}
 }
 
