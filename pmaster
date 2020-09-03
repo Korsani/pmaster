@@ -239,7 +239,8 @@ sub build_port {
 	my $ec=0;
 	disp2({msg=>'Building '.BRIGHT_WHITE.'%s'.RESET,params=>[$port]});
 	if ($lines and $PROGRESS) {
-		$ec=system('portmaster',PM_OPTS,$port," | pv -l -s $lines -pet");
+		my $cmd='portmaster '.PM_OPTS.' '.$port." | pv -l -s $lines -pet >/dev/null";
+		$ec=system($cmd);
 	} else {
 		$lines=0;
 		#$ec=system('portmaster',PM_OPTS,$port);
