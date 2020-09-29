@@ -180,6 +180,7 @@ sub resolve_origin {
 	my $dbh=shift;
 	my @origins;
 	my $kvers=`uname -K`;
+	chomp $kvers;
 	$kvers=~s/^(..).*/$1/;
 	while (my $pkg=shift) {
 		disp2({msg=>'Resolving %s',params=>[$pkg]}) if ($DEBUG);
@@ -190,7 +191,7 @@ sub resolve_origin {
 			# So it's a package I don't know about. Let's search in INDEX
 			open(I,"<$env{PORTSDIR}/INDEX-$kvers") or die "$!";
 			while (my $line = <I>) {
-				if ($line =~ /\/$pkg\|/) {
+				if ($line =~ /\/$pkg\|/i) {
 					$port=((split(/\|/,$line))[1]);
 				}
 			}
@@ -285,21 +286,23 @@ sub loop_on_me {
 	my $a=shift;
 	while (1) {
 		if ($a) {
-			my $mess=sprintf('%s:%s%%',$a->{'port'},$a->{'progress'});
-			syslog(LOG_INFO,$mess);
+			foreach my $k (keys %{$a}) {
+				my $mess=sprintf('%s:%s%%',$a->{$k}{'port'},$a->{$k}{'progress'});
+				syslog(LOG_INFO,$mess);
+			}
 		}
-		#printf("%s\n",$mess);
 		$a=get_running_port($dbh);
 		sleep($WAIT);
 	}
 }
 sub get_running_port {
 	my $dbh=shift,
-	my @list=glob ( "$env{'WRKDIRPREFIX'}$env{'PORTSDIR'}/*/*/work" );
+	my @list=glob ( "$env{'WRKDIRPREFIX'}$env{'PORTSDIR'}/*/*/work*" );
+	my %res;
 	foreach my $w (@list) {
 		my $port=$w;
-		$port=~s!$env{'WRKDIRPREFIX'}$env{'PORTSDIR'}/(.*)/work!$1!;
-		disp2({msg=>'Dealing with %s ~ %s',params=>[$w,$port]}) if ($DEBUG);
+		$port=~s!$env{'WRKDIRPREFIX'}$env{'PORTSDIR'}/(.*)/work.*!$1!;
+		disp2({msg=>'Dealing with '.BRIGHT_WHITE.'%s'.RESET.' ~ %s',params=>[$w,$port]}) if ($DEBUG);
 		# This is the best way I found to detect ongoing portmaster:
 		# There should have more at least one process with `make` and $WRKDIRPREFIX$PORTSDIR<port>/work somewhere...
 		my $npid=`ps -a | grep -v grep | grep '$w' | awk '{print \$1}'| wc -l|xargs`;
@@ -313,9 +316,12 @@ sub get_running_port {
 				$eta=sprintf('%0i',$time-(Time::HiRes::time()-$stats[10]));
 				$progress=sprintf('%2i',($time-$eta)/$time*100);
 			}
-			return {port=>$port,start_time=>$stats[10],eta=>$eta,progress=>$progress};
+			$res{$port}={port=>$port,start_time=>$stats[10],eta=>$eta,progress=>$progress};
+		} else {
+			disp2({msg=>'No process seems to handle compilation in '.BRIGHT_WHITE.'%s'.RESET,params=>[$w]}) if ($DEBUG);
 		}
 	}
+	return \%res;
 }
 
 my $dbh=DBI->connect($DSN,'','',{RaiseError => 1}) or die $DBI::errstr;
@@ -345,8 +351,10 @@ if ($STATS and (scalar @pkgs > 0 or $ALL)) {	# show stats about a package
 	openlog('pmaster','ndelay,pid','local0');
 	my $a=get_running_port($dbh);
 	if ($a) {
-		disp2({prefix=>0,msg=>YELLOW.'%s'.RESET.":\n\t".CYAN.'Started'.RESET.": %s\n\t".CYAN.'Elapsed'.RESET.": %0is\n\t".CYAN.'ETA'.RESET.": %s\n\t".CYAN.'Progress'.RESET.": %2s%%",params=>[$a->{'port'},scalar localtime $a->{'start_time'},Time::HiRes::time()-$a->{'start_time'},($a->{'eta'} eq '?'?'?' : ($a->{'eta'}.'s ('.scalar localtime (time()+$a->{'eta'})).')'),$a->{'progress'}]});
+		foreach my $k (keys %{$a}) {
+			disp2({prefix=>0,msg=>YELLOW.'%s'.RESET.":\n\t".CYAN.'Started'.RESET.": %s\n\t".CYAN.'Elapsed'.RESET.": %0is\n\t".CYAN.'ETA'.RESET.": %s\n\t".CYAN.'Progress'.RESET.": %2s%%",params=>[$a->{$k}{'port'},scalar localtime $a->{$k}{'start_time'},Time::HiRes::time()-$a->{$k}{'start_time'},($a->{$k}{'eta'} eq '?'?'?' : ($a->{$k}{'eta'}.'s ('.scalar localtime (time()+$a->{$k}{'eta'})).')'),$a->{$k}{'progress'}]});
 		}
+	}
 } elsif ($WAIT) {
 	my $a=get_running_port($dbh);
 	openlog('pmaster','ndelay,pid','local0');
