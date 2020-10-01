@@ -86,6 +86,8 @@ sub check_db_tables {
 		if (! $dbh->selectall_array('SELECT name FROM sqlite_master WHERE type="table" AND name="'.$table.'";')) {
 			my @res=$dbh->selectall_array($create_table{$table});
 			disp2({msg=>"Table %s created",params=>[$table]});
+		} elsif ($DEBUG) {
+			disp2({msg=>"Table %s ok",params=>[$table]});
 		}
 	}
 }
@@ -103,7 +105,7 @@ sub check_db_version {
 			$dbh->selectall_array($update_table{$i});
 			$sql=sprintf('update %s set value=%i where key="db_vers";',$table{'config'},$i);
 			$dbh->selectall_array($sql);
-
+			disp2({msg=>'Database version set to %d',params=>[$i]}) if ($DEBUG);
 		}
 	}
 }
@@ -299,6 +301,9 @@ sub get_running_port {
 	my $dbh=shift,
 	my @list=glob ( "$env{'WRKDIRPREFIX'}$env{'PORTSDIR'}/*/*/work*" );
 	my %res;
+	if (scalar @list == 0) {
+		disp2({msg=>'No ongoing work found',params=>[]});
+	}
 	foreach my $w (@list) {
 		my $port=$w;
 		$port=~s!$env{'WRKDIRPREFIX'}$env{'PORTSDIR'}/(.*)/work.*!$1!;
@@ -309,6 +314,7 @@ sub get_running_port {
 		chomp $npid;
 		if ($npid > 0) {
 			exit 0 if ($EXISTS);
+			disp2({msg=>'Compilation in '.BRIGHT_WHITE.'%s'.RESET.' is ongoing',params=>[$w]}) if ($DEBUG);
 			# When base dir has been created?
 			my @stats=stat($env{'WRKDIRPREFIX'}.$env{'PORTSDIR'}.'/'.$port);
 			my $eta='?';my $progress='?';
@@ -321,10 +327,17 @@ sub get_running_port {
 			disp2({msg=>'No process seems to handle compilation in '.BRIGHT_WHITE.'%s'.RESET,params=>[$w]}) if ($DEBUG);
 		}
 	}
+	if (scalar keys %res == 0) {
+		disp2({msg=>BRIGHT_WHITE.'%d stall work(s) found:'.RESET,params=>[scalar @list]});
+		foreach my $w (@list) {
+			disp2({msg=>'> %s.',params=>[$w]});
+		}
+	}
 	return \%res;
 }
 
 my $dbh=DBI->connect($DSN,'','',{RaiseError => 1}) or die $DBI::errstr;
+disp2({msg=>"Database:%s",params=>[$DSN]}) if ($DEBUG);
 
 check_db($dbh);
 
@@ -351,8 +364,9 @@ if ($STATS and (scalar @pkgs > 0 or $ALL)) {	# show stats about a package
 	openlog('pmaster','ndelay,pid','local0');
 	my $a=get_running_port($dbh);
 	if ($a) {
+		my $i=1;
 		foreach my $k (keys %{$a}) {
-			disp2({prefix=>0,msg=>YELLOW.'%s'.RESET.":\n\t".CYAN.'Started'.RESET.": %s\n\t".CYAN.'Elapsed'.RESET.": %0is\n\t".CYAN.'ETA'.RESET.": %s\n\t".CYAN.'Progress'.RESET.": %2s%%",params=>[$a->{$k}{'port'},scalar localtime $a->{$k}{'start_time'},Time::HiRes::time()-$a->{$k}{'start_time'},($a->{$k}{'eta'} eq '?'?'?' : ($a->{$k}{'eta'}.'s ('.scalar localtime (time()+$a->{$k}{'eta'})).')'),$a->{$k}{'progress'}]});
+			disp2({prefix=>0,msg=>WHITE.$i++.RESET.' '.YELLOW.'%s'.RESET.":\n\t".CYAN.'Started'.RESET.": %s\n\t".CYAN.'Elapsed'.RESET.": %0is\n\t".CYAN.'ETA'.RESET.": %s\n\t".CYAN.'Progress'.RESET.": %2s%%",params=>[$a->{$k}{'port'},scalar localtime $a->{$k}{'start_time'},Time::HiRes::time()-$a->{$k}{'start_time'},($a->{$k}{'eta'} eq '?'?'?' : ($a->{$k}{'eta'}.'s ('.scalar localtime (time()+$a->{$k}{'eta'})).')'),$a->{$k}{'progress'}]});
 		}
 	}
 } elsif ($WAIT) {
