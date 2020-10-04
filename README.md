@@ -60,7 +60,8 @@ Of course, if it's the first compilation, nothing can be calculated...
 - Add more error checking...
 - Find a more reliable way to detect an ongoing compilation
 - If port b is needed to compile port a, time to compile port b is included in the time to compile port a
-- And so is port compilation is waiting for a key press
+- And so if port compilation is waiting for a key press
+- Does not handle case where package install file in the same place as other package
 
 ## Authors
 
