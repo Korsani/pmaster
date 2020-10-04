@@ -246,7 +246,7 @@ sub build_port {
 		my $cmd='portmaster '.PM_OPTS.' '.$port." | pv -l -s $lines -pet >/dev/null";
 		$ec=system($cmd);
 	} else {
-		disp2({msg=>'First time for '.BRIGHT_WHITE.'%s',params=>[$port,$ec/256]});
+		disp2({msg=>'First time for '.BRIGHT_WHITE.'%s',params=>[$port]});
 		$lines=0;
 		#$ec=system('portmaster',PM_OPTS,$port);
 		open(P,'portmaster --no-confirm '.PM_OPTS.' '.$port.'|') or $ec=1;
