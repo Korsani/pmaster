@@ -196,7 +196,7 @@ sub resolve_origin {
 			# So it's a package I don't know about. Let's search in INDEX
 			open(I,"<$env{PORTSDIR}/INDEX-$kvers") or die "$!";
 			while (my $line = <I>) {
-				if ($line =~ /\/$pkg\|/i) {
+				if ($line =~ /$env{PORTSDIR}\/[\w\-]*\/$pkg\|/i) {
 					$port=((split(/\|/,$line))[1]);
 					$port=~s/$env{PORTSDIR}\///;
 				}
