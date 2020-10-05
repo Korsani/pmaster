@@ -17,7 +17,7 @@ use constant DB_DIR		=> '/var/db';
 use constant DB_VERS	=> 1;
 use constant PM_OPTS	=> '-dbg';
 
-use vars qw( $HELP $EXISTS $ALL $DEBUG $CURRENT $PROGRESS $LAST $VERSION $WAIT $STATS );
+use vars qw( $HELP $EXISTS $ALL $DEBUG $CURRENT $PROGRESS $LAST $VERSION $WAIT $STATS $WORLD );
 
 die "Not on FreeBSD\n" unless ("$^O" =~ "freebsd");
 
@@ -31,7 +31,8 @@ GetOptions(
 	'last'		=> \$LAST,
 	'version'	=> \$VERSION,
 	'wait=i'	=> \$WAIT,
-	'stats'		=> \$STATS
+	'stats'		=> \$STATS,
+	'world'		=> \$WORLD
 );
 if ($VERSION) {
 	printf("%s\n",VERSION);
@@ -330,12 +331,20 @@ sub get_running_port {
 		}
 	}
 	if (scalar keys %res == 0) {
-		disp2({msg=>BRIGHT_WHITE.'%d stall work(s) found:'.RESET,params=>[scalar @list]}) if ($DEBUG);
+		disp2({msg=>BRIGHT_WHITE.'%d stall work(s) found:'.RESET,params=>[scalar @list]}) if ($DEBUG or ! $WAIT);
 		foreach my $w (@list) {
-			disp2({msg=>'> %s.',params=>[$w]}) if ($DEBUG);
+			disp2({msg=>'> %s.',params=>[$w]}) if ($DEBUG or ! $WAIT);
 		}
 	}
 	return \%res;
+}
+sub list_world {
+	my $dbh=shift;
+	my $sql=sprintf('select origin from %s group by origin order by origin',$table{stats});
+	my @res=$dbh->selectall_array($sql);
+	if (scalar @res > 0) {
+		map {disp2({prefix=>0,msg=>'%s',params=>[shift @{$_}]})} @res ;
+	}
 }
 
 my $dbh=DBI->connect($DSN,'','',{RaiseError => 1}) or die $DBI::errstr;
@@ -379,6 +388,8 @@ if ($STATS and (scalar @pkgs > 0 or $ALL)) {	# show stats about a package
 	} else {
 		loop_on_me($dbh,{port=>'(idle)',progress=>'?',eta=>0});
 	}
+} elsif ($WORLD) {
+	list_world($dbh);
 } else {		# Compile ports
 	if (scalar @pkgs == 0) {
 		disp2({msg=>'Nothing to build'});
@@ -400,13 +411,14 @@ if ($STATS and (scalar @pkgs > 0 or $ALL)) {	# show stats about a package
 
 =head1 SYNOPSIS
 
-	pmaster <port>
-	pmaster --current 
-	pmaster --exists
+	pmaster [ --debug ] [ --progress ] <port>
+	pmaster [ --debug ] --current 
+	pmaster [ --debug ] --exists
 	pmaster --help
-	pmaster --last
-	pmaster --stats <port>|--all
-	pmaster --wait <n>
+	pmaster [ --debug ] --last
+	pmaster [ --debug ] --stats <port>|--all
+	pmaster [ --debug ] --wait <n>
+	pmaster [ --debug ] --world
 
 =head1 DESCRIPTION
 
@@ -425,6 +437,10 @@ Build this port with portmaster(8)
 =item --current
 
 Show currently building port
+
+=item --debug
+
+Show debugging informations
 
 =item --exists
 
@@ -445,6 +461,14 @@ Show statistics about port(s), or all if B<--all> is specified
 =item --wait
 
 Wait forever, logging to syslog every B<n> seconds what's going on
+
+=item --world
+
+Show ports built by pmaster(1)
+
+In Gentoo, the `world` list is packages you intended to built. Thus, it's packages you wanted, without their dependencies.
+
+I assume you use pmaster(1) in the same way: you ask for a package, not dependencies.
 
 =back
 
