@@ -195,6 +195,7 @@ sub resolve_origin {
 			while (my $line = <I>) {
 				if ($line =~ /\/$pkg\|/i) {
 					$port=((split(/\|/,$line))[1]);
+					$port=~s/$env{PORTSDIR}\///;
 				}
 			}
 			close(I);
