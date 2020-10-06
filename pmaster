@@ -197,25 +197,28 @@ sub resolve_origin {
 	$kvers=~s/^(..).*/$1/;
 	while (my $pkg=shift) {
 		disp2({msg=>'Resolving '.BRIGHT_WHITE.'%s'.RESET,params=>[$pkg]}) if ($DEBUG);
-		my $port=`pkg info -o $pkg 2>/dev/null | awk '{print \$2}'`;
-		chomp $port;
-		if ( ! $port) {
+		my @ports=`pkg info -o $pkg 2>/dev/null | awk '{print \$2}'`;
+		chomp @ports;
+		if ( scalar @ports == 0) {
 			disp2({msg=>'Not found by pkg(1). Searching in INDEX'}) if ($DEBUG);
 			# So it's a package I don't know about. Let's search in INDEX
 			open(I,"<$env{PORTSDIR}/INDEX-$kvers") or die "$!";
 			while (my $line = <I>) {
 				if ($line =~ /$env{PORTSDIR}\/[\w\-]*\/$pkg\|/i) {
-					$port=((split(/\|/,$line))[1]);
+					my $port=((split(/\|/,$line))[1]);
 					$port=~s/$env{PORTSDIR}\///;
+					push @ports,$port;
 				}
 			}
 			close(I);
 		}
-		if (! $port) {
+		if (scalar @ports == 0) {
 			disp2({msg=>'No origin found for '.BRIGHT_WHITE.'%s'.RESET,params=>[$pkg]});
+		} elsif (scalar @ports == 1) {
+			disp2({msg=>'%s ~> %s',params=>[$pkg,$ports[0]]}) if ($DEBUG);
+			push @origins,($ports[0]);
 		} else {
-			disp2({msg=>'%s ~> %s',params=>[$pkg,$port]}) if ($DEBUG);
-			push @origins,($port);
+			disp2({msg=>'More than one origin found for %s',params=>[$pkg]}) if ($DEBUG);
 		}
 	}
 	return @origins;
