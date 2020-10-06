@@ -273,6 +273,7 @@ sub build_port {
 	# If everything went fine...
 	if ($ec == 0) {
 		store_stats($dbh,$port,($end-$start),$lines);
+		disp2({msg=>BRIGHT_WHITE.'%s'.RESET.' added to '.BRIGHT_BLUE.'world'.RESET,params=>[$port]}) unless ($ONESHOT);
 	} else {
 		disp2({msg=>'Something failed with %s building: portmaster exits with %i',params=>[$port,$ec/256]});
 	}
@@ -403,7 +404,7 @@ if ($STATS and (scalar @pkgs > 0 or $ALL)) {	# show stats about a package
 	if ($ONESHOT) {
 		my $sql='update %s set world=false where origin="%s"';
 		foreach my $port (@pkgs) {
-			disp2({msg=>'Puting '.BRIGHT_WHITE.'%s'.RESET.' out of '.GREEN.'world'.RESET,params=>[$port]});
+			disp2({msg=>'Puting '.BRIGHT_WHITE.'%s'.RESET.' out of '.BRIGHT_BLUE.'world'.RESET,params=>[$port]});
 			$sql=sprintf($sql,$table{'stats'},$port);
 			$dbh->selectall_array($sql);
 		}
@@ -419,7 +420,7 @@ if ($STATS and (scalar @pkgs > 0 or $ALL)) {	# show stats about a package
 	}
 	if (scalar keys %exit_code > 0) {
 		disp2({msg=>'Summary:'});
-		map {disp2({msg=>'- %s:%s (in %is)',params=>[$_,$exit_code{$_}==0?BRIGHT_GREEN.'success'.RESET:BRIGHT_RED.'failure'.RESET,$time_taken{$_}]});} @pkgs;
+		map {disp2({msg=>'- %s%s:%s (in %is)',params=>[$ONESHOT?'':BRIGHT_BLUE.'w'.RESET.':',$_,$exit_code{$_}==0?BRIGHT_GREEN.'success'.RESET:BRIGHT_RED.'failure'.RESET,$time_taken{$_}]});} @pkgs;
 	}
 }
 
