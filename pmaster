@@ -10,14 +10,14 @@ use File::Copy;
 use DBI;
 use Sys::Syslog qw( :standard :macros );
 use Time::HiRes;
-use constant VERSION	=> 0.4;
+use constant VERSION	=> 0.5;
 
 use constant DB_FILE	=> 'pmaster.db';
 use constant DB_DIR		=> '/var/db';
-use constant DB_VERS	=> 1;
+use constant DB_VERS	=> 2;
 use constant PM_OPTS	=> '-dbg';
 
-use vars qw( $HELP $EXISTS $ALL $DEBUG $CURRENT $PROGRESS $LAST $VERSION $WAIT $STATS $WORLD );
+use vars qw( $HELP $EXISTS $ALL $DEBUG $CURRENT $PROGRESS $LAST $VERSION $WAIT $STATS $WORLD $ONESHOT );
 
 die "Not on FreeBSD\n" unless ("$^O" =~ "freebsd");
 
@@ -32,6 +32,7 @@ GetOptions(
 	'version'	=> \$VERSION,
 	'wait=i'	=> \$WAIT,
 	'stats'		=> \$STATS,
+	'oneshot|1'	=> \$ONESHOT,
 	'world'		=> \$WORLD
 );
 if ($VERSION) {
@@ -58,7 +59,7 @@ my %create_table=(
 );
 # Sql statements to update database
 my %update_table=(
-	2=>'test'
+	2=>'alter table '.$table{'stats'}.' add world boolean default true'
 );
 
 our %env;
@@ -113,8 +114,10 @@ sub check_db_version {
 			$dbh->selectall_array($update_table{$i});
 			$sql=sprintf('update %s set value=%i where key="db_vers";',$table{'config'},$i);
 			$dbh->selectall_array($sql);
-			disp2({msg=>'Database version set to %d',params=>[$i]}) if ($DEBUG);
+			disp2({msg=>'Database schema version set to %d',params=>[$i]}) if ($DEBUG);
 		}
+	} else {
+		disp2({msg=>'Database schema version: %d',params=>[$db_vers]}) if ($DEBUG);
 	}
 }
 sub check_db_path {
@@ -193,7 +196,7 @@ sub resolve_origin {
 	chomp $kvers;
 	$kvers=~s/^(..).*/$1/;
 	while (my $pkg=shift) {
-		disp2({msg=>'Resolving %s',params=>[$pkg]}) if ($DEBUG);
+		disp2({msg=>'Resolving '.BRIGHT_WHITE.'%s'.RESET,params=>[$pkg]}) if ($DEBUG);
 		my $port=`pkg info -o $pkg 2>/dev/null | awk '{print \$2}'`;
 		chomp $port;
 		if ( ! $port) {
@@ -255,7 +258,6 @@ sub build_port {
 		my $cmd='portmaster '.PM_OPTS.' '.$port." | pv -l -s $lines -pet >/dev/null";
 		$ec=system($cmd);
 	} else {
-		disp2({msg=>'First time for '.BRIGHT_WHITE.'%s',params=>[$port]});
 		$lines=0;
 		#$ec=system('portmaster',PM_OPTS,$port);
 		open(P,'portmaster --no-confirm '.PM_OPTS.' '.$port.'|') or $ec=1;
@@ -290,7 +292,9 @@ sub store_stats {
 	my $arch=`uname -p|xargs`;	# Arch (amd64, aarch64,...
 	my $mem=`sysctl -n hw.physmem|xargs`;		# Physical amount of memory
 	my $cfreq=`sysctl -n dev.cpu.0.freq|xargs`;	# Cpu freq. May vary by sake of powerd(8)/powerdxx(8)
-	my $sql=sprintf("insert into %s (origin,time_real,portmaster_options,mac,kernel_vers,arch,cpu_freq,memory,ccache,log_size_lines) values ('%s',%i,'%s','%s','%s','%s',%i,%i,%i,%i);select last_insert_rowid();",$table{'stats'},$o,	$real,PM_OPTS, `uname -m| xargs echo -n`,`uname -K|xargs echo -n`,`uname -p | xargs echo -n`,`sysctl -n dev.cpu.0.freq| xargs echo -n`, `sysctl -n hw.physmem| xargs echo -n`, $env{'WITH_CCACHE_BUILD'} eq 'yes' ? 1 : 0, $lines);
+	my $world=1;
+	$world=0 if ($ONESHOT);
+	my $sql=sprintf("insert into %s (origin,time_real,portmaster_options,mac,kernel_vers,arch,cpu_freq,memory,ccache,log_size_lines,world) values ('%s',%i,'%s','%s','%s','%s',%i,%i,%i,%i,%d);select last_insert_rowid();",$table{'stats'},$o,	$real,PM_OPTS, `uname -m| xargs echo -n`,`uname -K|xargs echo -n`,`uname -p | xargs echo -n`,`sysctl -n dev.cpu.0.freq| xargs echo -n`, `sysctl -n hw.physmem| xargs echo -n`, $env{'WITH_CCACHE_BUILD'} eq 'yes' ? 1 : 0, $lines,$world);
 	$dbh->selectall_array($sql);
 }
 sub loop_on_me {
@@ -347,7 +351,7 @@ sub get_running_port {
 }
 sub list_world {
 	my $dbh=shift;
-	my $sql=sprintf('select origin from %s group by origin order by origin',$table{stats});
+	my $sql=sprintf('select origin from %s where world = 1 group by origin order by origin',$table{stats});
 	my @res=$dbh->selectall_array($sql);
 	if (scalar @res > 0) {
 		map {disp2({prefix=>0,msg=>'%s',params=>[shift @{$_}]})} @res ;
@@ -396,7 +400,16 @@ if ($STATS and (scalar @pkgs > 0 or $ALL)) {	# show stats about a package
 		loop_on_me($dbh,{port=>'(idle)',progress=>'?',eta=>0});
 	}
 } elsif ($WORLD) {
-	list_world($dbh);
+	if ($ONESHOT) {
+		my $sql='update %s set world=false where origin="%s"';
+		foreach my $port (@pkgs) {
+			disp2({msg=>'Puting '.BRIGHT_WHITE.'%s'.RESET.' out of '.GREEN.'world'.RESET,params=>[$port]});
+			$sql=sprintf($sql,$table{'stats'},$port);
+			$dbh->selectall_array($sql);
+		}
+	} else {
+		list_world($dbh);
+	}
 } else {		# Compile ports
 	if (scalar @pkgs == 0) {
 		disp2({msg=>'Nothing to build'});
@@ -418,14 +431,15 @@ if ($STATS and (scalar @pkgs > 0 or $ALL)) {	# show stats about a package
 
 =head1 SYNOPSIS
 
-	pmaster [ --debug ] [ --progress ] <port>
+	pmaster [ --debug ] [ --progress ] [ --oneshot|-1 ] <port>
 	pmaster [ --debug ] --current 
 	pmaster [ --debug ] --exists
-	pmaster --help
 	pmaster [ --debug ] --last
 	pmaster [ --debug ] --stats <port>|--all
 	pmaster [ --debug ] --wait <n>
 	pmaster [ --debug ] --world
+	pmaster [ --debug ] --world --oneshot|-1 <port>
+	pmaster --help
 
 =head1 DESCRIPTION
 
@@ -461,6 +475,10 @@ Help?
 
 Show last built port. Implies B<--stats>
 
+=item --oneshot
+
+Do not flag port as part of `world` list
+
 =item --stats
 
 Show statistics about port(s), or all if B<--all> is specified
@@ -471,13 +489,13 @@ Wait forever, logging to syslog every B<n> seconds what's going on
 
 =item --world
 
-Show ports built by pmaster(1)
+Show ports built by pmaster(1) that are flagged `world`
 
-In Gentoo, the `world` file is a list of packages you intended to built. Thus, it's packages you wanted, without their dependencies listed.
+If B<--oneshot> and B<port> are specified, flag B<port> out of `world` 
 
-I assume you use pmaster(1) in the same way: you ask for a package, not dependencies.
+In Gentoo, the `world` file is a list of packages you intended to built. Thus, it's packages you wanted, without their dependencies listed. Ports built by pmaster(1) are flagged `world`by default.
 
-Please not it does not keep track of package installer via pkg(8) or other package manager.
+Please note it does not keep track of package installer via pkg(8) or other package manager.
 
 =back
 
