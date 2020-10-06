@@ -69,9 +69,14 @@ sub disp2 {
 	my %msg=%{shift()};
 	$msg{'prefix'}=1 if (not defined $msg{'prefix'});
 	if ($msg{'prefix'}) {
-		my $sub=(split(/::/,(caller(1))[3]))[1];
+		my $sub;
+		if (caller(1)) {
+			$sub=(split(/::/,(caller(1))[3]))[1];
+		} else {
+			$sub='main';
+		}
 		my $line=(caller(0))[2];
-		$msg{'prefix'}=sprintf('['.YELLOW.'pmaster'.RESET.']('.CYAN.'%s:%s'.RESET.') ',$sub?$sub:'main',$line);
+		$msg{'prefix'}=sprintf('['.YELLOW.'pmaster'.RESET.']('.CYAN.'%s:%s'.RESET.') ',$sub,$line);
 	} else {
 		$msg{'prefix'}='';
 	}
@@ -468,9 +473,11 @@ Wait forever, logging to syslog every B<n> seconds what's going on
 
 Show ports built by pmaster(1)
 
-In Gentoo, the `world` list is packages you intended to built. Thus, it's packages you wanted, without their dependencies.
+In Gentoo, the `world` file is a list of packages you intended to built. Thus, it's packages you wanted, without their dependencies listed.
 
 I assume you use pmaster(1) in the same way: you ask for a package, not dependencies.
+
+Please not it does not keep track of package installer via pkg(8) or other package manager.
 
 =back
 
