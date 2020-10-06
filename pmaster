@@ -10,14 +10,14 @@ use File::Copy;
 use DBI;
 use Sys::Syslog qw( :standard :macros );
 use Time::HiRes;
-use constant VERSION	=> 0.5;
+use constant VERSION	=> 0.6;
 
 use constant DB_FILE	=> 'pmaster.db';
 use constant DB_DIR		=> '/var/db';
 use constant DB_VERS	=> 2;
 use constant PM_OPTS	=> '-dbg';
 
-use vars qw( $HELP $EXISTS $ALL $DEBUG $CURRENT $PROGRESS $LAST $VERSION $WAIT $STATS $WORLD $ONESHOT );
+use vars qw( $HELP $EXISTS $ALL $DEBUG $CURRENT $PROGRESS $LAST $VERSION $WAIT $STATS $WORLD $ONESHOT $DRYRUN );
 
 die "Not on FreeBSD\n" unless ("$^O" =~ "freebsd");
 
@@ -33,6 +33,7 @@ GetOptions(
 	'wait=i'	=> \$WAIT,
 	'stats'		=> \$STATS,
 	'oneshot|1'	=> \$ONESHOT,
+	'dryrun|n'	=> \$DRYRUN,
 	'world'		=> \$WORLD
 );
 if ($VERSION) {
@@ -253,16 +254,19 @@ sub build_port {
 	# Returns [ [ id, field ] [ ... ] ]
 	# And I want the field of the last element
 	my $lines=@{ $a[-1]}[1];
+	disp2({msg=>'Building '.BRIGHT_WHITE.'%s'.RESET,params=>[$port]});
+	if ($DRYRUN) {
+		disp2({msg=>'Dry run asked'});
+		return(0,0);
+	}
 	# If line size is available and progress is asked
 	my $start=Time::HiRes::time();
 	my $ec=0;
-	disp2({msg=>'Building '.BRIGHT_WHITE.'%s'.RESET,params=>[$port]});
 	if ($lines and $PROGRESS) {
 		my $cmd='portmaster '.PM_OPTS.' '.$port." | pv -l -s $lines -pet >/dev/null";
 		$ec=system($cmd);
 	} else {
 		$lines=0;
-		#$ec=system('portmaster',PM_OPTS,$port);
 		open(P,'portmaster --no-confirm '.PM_OPTS.' '.$port.'|') or $ec=1;
 		while(<P>) {
 			$lines++;
@@ -320,7 +324,8 @@ sub get_running_port {
 	my @list=glob ( "$env{'WRKDIRPREFIX'}$env{'PORTSDIR'}/*/*/work*" );
 	my %res;
 	if (scalar @list == 0) {
-		disp2({msg=>'No ongoing work found',params=>[]}) if ($DEBUG);
+		disp2({msg=>'No ongoing work found',params=>[]}) unless ($WAIT);
+		return \%res;
 	}
 	foreach my $w (@list) {
 		my $port=$w;
@@ -348,7 +353,7 @@ sub get_running_port {
 	if (scalar keys %res == 0) {
 		disp2({msg=>BRIGHT_WHITE.'%d stall work(s) found:'.RESET,params=>[scalar @list]}) if ($DEBUG or ! $WAIT);
 		foreach my $w (@list) {
-			disp2({msg=>'> %s.',params=>[$w]}) if ($DEBUG or ! $WAIT);
+			disp2({msg=>'> %s',params=>[$w]}) if ($DEBUG or ! $WAIT);
 		}
 	}
 	return \%res;
@@ -435,7 +440,7 @@ if ($STATS and (scalar @pkgs > 0 or $ALL)) {	# show stats about a package
 
 =head1 SYNOPSIS
 
-	pmaster [ --debug ] [ --progress ] [ --oneshot|-1 ] <port>
+	pmaster [ --debug ] [ --progress ] [ --oneshot|-1 ] [ --dryrun ] <port>
 	pmaster [ --debug ] --current 
 	pmaster [ --debug ] --exists
 	pmaster [ --debug ] --last
@@ -466,6 +471,10 @@ Show currently building port
 =item --debug
 
 Show debugging informations
+
+=item --dryrun
+
+Does everything except building the port and writing into db
 
 =item --exists
 
