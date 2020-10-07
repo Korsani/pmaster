@@ -362,9 +362,7 @@ sub list_world {
 	my $dbh=shift;
 	my $sql=sprintf('select origin from %s where world = 1 group by origin order by origin',$table{stats});
 	my @res=$dbh->selectall_array($sql);
-	if (scalar @res > 0) {
-		map {disp2({prefix=>0,msg=>'%s',params=>[shift @{$_}]})} @res ;
-	}
+	return \@res;
 }
 
 my $dbh=DBI->connect($DSN,'','',{RaiseError => 1}) or die $DBI::errstr;
@@ -417,7 +415,15 @@ if ($STATS and (scalar @pkgs > 0 or $ALL)) {	# show stats about a package
 			$dbh->selectall_array($sql);
 		}
 	} else {
-		list_world($dbh);
+		my $res=list_world($dbh);
+		if (scalar @{$res} > 0) {
+			foreach my $aport (@{$res}) {
+				my $port=shift @{$aport};
+				system("pkg info -e $port");
+				# Display only installed ports
+				disp2({prefix=>0,msg=>'%s',params=>[$port]}) if ($?==0);
+			}
+		}
 	}
 } else {		# Compile ports
 	if (scalar @pkgs == 0) {
@@ -452,9 +458,13 @@ if ($STATS and (scalar @pkgs > 0 or $ALL)) {	# show stats about a package
 
 =head1 DESCRIPTION
 
-Show running portmaster(8) information.
+Wrapper for portmaster(8) to add some functionalities, such as:
 
-It uses a sqlite3(1) database stored in your home.
+- Running port building,
+- Estimated time for a build,
+- A `world` list, as Gentoo has
+
+It uses a sqlite3(1) database.
 
 =head1 OPTIONS
 
@@ -462,19 +472,19 @@ It uses a sqlite3(1) database stored in your home.
 
 =item <port>
 
-Build this port with portmaster(8)
+Build this port with portmaster(8).
 
 =item --current
 
-Show currently building port
+Show currently building port.
 
 =item --debug
 
-Show debugging informations
+Show debugging informations.
 
 =item --dryrun
 
-Does everything except building the port and writing into db
+Does everything except building the port and writing into db.
 
 =item --exists
 
@@ -486,25 +496,25 @@ Help?
 
 =item --last
 
-Show last built port. Implies B<--stats>
+Show last built port. Implies B<--stats>.
 
 =item --oneshot
 
-Do not flag port as part of `world` list
+Do not flag port as part of `world` list.
 
 =item --stats
 
-Show statistics about port(s), or all if B<--all> is specified
+Show statistics about port(s), or all if B<--all> is specified.
 
 =item --wait
 
-Wait forever, logging to syslog every B<n> seconds what's going on
+Wait forever, logging to syslog every B<n> seconds what's going on.
 
 =item --world
 
-Show ports built by pmaster(1) that are flagged `world`
+Show ports built by pmaster(1) that are flagged `world` AND installed.
 
-If B<--oneshot> and B<port> are specified, flag B<port> out of `world` 
+If B<--oneshot> and B<port> are specified, flag B<port> out of `world`.
 
 In Gentoo, the `world` file is a list of packages you intended to built. Thus, it's packages you wanted, without their dependencies listed. Ports built by pmaster(1) are flagged `world`by default.
 
