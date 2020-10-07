@@ -460,7 +460,7 @@ if ($STATS and (scalar @pkgs > 0 or $ALL)) {	# show stats about a package
 
 Wrapper for portmaster(8) to add some functionalities, such as:
 
-- Running port building,
+- Currently port building,
 - Estimated time for a build,
 - A `world` list, as Gentoo has
 
