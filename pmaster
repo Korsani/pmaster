@@ -17,7 +17,7 @@ use constant DB_DIR		=> '/var/db';
 use constant DB_VERS	=> 2;
 use constant PM_OPTS	=> '-dbg';
 
-use vars qw( $HELP $EXISTS $ALL $DEBUG $CURRENT $PROGRESS $LAST $VERSION $WAIT $STATS $WORLD $ONESHOT $DRYRUN );
+use vars qw( $HELP $EXISTS $ALL $DEBUG $CURRENT $PROGRESS $LAST $VERSION $WAIT $STATS $SHOWWORLD $ADDWORLD $RMWORLD $ONESHOT $DRYRUN );
 
 die "Not on FreeBSD\n" unless ("$^O" =~ "freebsd");
 
@@ -34,7 +34,9 @@ GetOptions(
 	'stats'		=> \$STATS,
 	'oneshot|1'	=> \$ONESHOT,
 	'dryrun|n'	=> \$DRYRUN,
-	'world'		=> \$WORLD
+	'ls-world'	=> \$SHOWWORLD,
+	'add-world'	=> \$ADDWORLD,
+	'rm-world'	=> \$RMWORLD
 );
 if ($VERSION) {
 	printf("%s\n",VERSION);
@@ -407,24 +409,29 @@ if ($STATS and (scalar @pkgs > 0 or $ALL)) {	# show stats about a package
 	} else {
 		loop_on_me($dbh,{port=>'(idle)',progress=>'?',eta=>0});
 	}
-} elsif ($WORLD) {
-	if ($ONESHOT) {
-		my $sql='update %s set world=false where origin="%s"';
-		foreach my $port (@pkgs) {
-			disp2({msg=>'Puting '.BRIGHT_WHITE.'%s'.RESET.' out of '.BRIGHT_BLUE.'world'.RESET,params=>[$port]});
-			$sql=sprintf($sql,$table{'stats'},$port);
-			$dbh->selectall_array($sql);
+} elsif ($SHOWWORLD) {
+	my $res=list_world($dbh);
+	if (scalar @{$res} > 0) {
+		foreach my $aport (@{$res}) {
+			my $port=shift @{$aport};
+			system("pkg info -e $port");
+			# Display only installed ports
+			disp2({prefix=>0,msg=>'%s',params=>[$port]}) if ($?==0);
 		}
-	} else {
-		my $res=list_world($dbh);
-		if (scalar @{$res} > 0) {
-			foreach my $aport (@{$res}) {
-				my $port=shift @{$aport};
-				system("pkg info -e $port");
-				# Display only installed ports
-				disp2({prefix=>0,msg=>'%s',params=>[$port]}) if ($?==0);
-			}
-		}
+	} 
+} elsif ($RMWORLD) {
+	my $sql='update %s set world=false where origin="%s"';
+	foreach my $port (@pkgs) {
+		disp2({msg=>'Puting '.BRIGHT_WHITE.'%s'.RESET.' out of '.BRIGHT_BLUE.'world'.RESET,params=>[$port]});
+		$sql=sprintf($sql,$table{'stats'},$port);
+		$dbh->selectall_array($sql);
+	}
+} elsif ($ADDWORLD) {
+	my $sql='update %s set world=true where origin="%s"';
+	foreach my $port (@pkgs) {
+		disp2({msg=>'Puting '.BRIGHT_WHITE.'%s'.RESET.' in '.BRIGHT_BLUE.'world'.RESET,params=>[$port]});
+		$sql=sprintf($sql,$table{'stats'},$port);
+		$dbh->selectall_array($sql);
 	}
 } else {		# Compile ports
 	if (scalar @pkgs == 0) {
@@ -511,13 +518,11 @@ Show statistics about port(s), or all if B<--all> is specified.
 
 Wait forever, logging to syslog every B<n> seconds what's going on.
 
-=item --world
+=item --ls-world, --add-world, --rm-world
 
-Show ports built by pmaster(1) that are flagged `world` AND installed.
+Show/add/remove ports from `world` list.
 
-If B<--oneshot> and B<port> are specified, flag B<port> out of `world`.
-
-In Gentoo, the `world` file is a list of packages you intended to built. Thus, it's packages you wanted, without their dependencies listed. Ports built by pmaster(1) are flagged `world`by default.
+In Gentoo, the `world` file is a list of packages you intended to built and that should be auto removed. Ports built by pmaster(1) are flagged `world` by default.
 
 Please note it does not keep track of package installer via pkg(8) or other package manager.
 
