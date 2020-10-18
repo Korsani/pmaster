@@ -460,8 +460,7 @@ if ($STATS and (scalar @pkgs > 0 or $ALL)) {	# show stats about a package
 	pmaster [ --debug ] --last
 	pmaster [ --debug ] --stats <port>|--all
 	pmaster [ --debug ] --wait <n>
-	pmaster [ --debug ] --world
-	pmaster [ --debug ] --world --oneshot|-1 <port>
+	pmaster [ --debug ] --ls-world | --add-world | --rm-world
 	pmaster --help
 
 =head1 DESCRIPTION
