@@ -1,6 +1,6 @@
 # pmaster collection
 
-Add some lacking functionalities to FreeBSD `ports-mgmt/portmaster`
+Wrap and add functionalities to FreeBSD `ports-mgmt/portmaster`
 
 ## Getting Started
 
@@ -72,5 +72,3 @@ Of course, if it's the first compilation, nothing can be calculated...
 
 * Thanks to the FreeBSD team for the awesome work
 * And to the Gentoo team for the same reason
-
-
