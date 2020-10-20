@@ -248,12 +248,17 @@ sub show_stats {
 		}
 	}
 }
-sub get_port_dependance {
+sub get_port_dependencies {
 	my $origin=shift;
-	disp2({msg=>'Gathering dependance of '.BRIGHT_WHITE.'%s'.RESET,params=>[$origin]});
+	disp2({msg=>'Gathering dependencies of '.BRIGHT_WHITE.'%s'.RESET,params=>[$origin]});
 	open(W,"portmaster --show-work $origin | grep 'NOT INSTALLED' | awk '{print \$4}'|") or die "$!";
 	my @dependencies=<W>;
 	chomp @dependencies;
+	if (scalar @dependencies gt 0) {
+		disp2({msg=>BRIGHT_YELLOW.'%n'.RESET.' found',params=>[scalar @dependencies]});
+	} else {
+		disp2({msg=>'None found',params=>[]});
+	}
 	return(@dependencies);
 }
 # Run compilation of a port
@@ -261,7 +266,7 @@ sub build_port {
 	my $dbh=shift;
 	my $port=shift;
 	my $world=shift;
-	my @dependencies=get_port_dependance($port);
+	my @dependencies=get_port_dependencies($port);
 	if (scalar @dependencies gt 0) {
 		map {disp2({msg=>'> '.BRIGHT_WHITE.'%s'.RESET,params=>[$_]})} @dependencies;
 		foreach my $port (@dependencies) {
