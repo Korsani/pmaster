@@ -10,7 +10,7 @@ use File::Copy;
 use DBI;
 use Sys::Syslog qw( :standard :macros );
 use Time::HiRes;
-use constant VERSION	=> 0.6;
+use constant VERSION	=> 0.7;
 
 use constant DB_FILE	=> 'pmaster.db';
 use constant DB_DIR		=> '/var/db';
@@ -248,10 +248,26 @@ sub show_stats {
 		}
 	}
 }
+sub get_port_dependance {
+	my $origin=shift;
+	disp2({msg=>'Gathering dependance of '.BRIGHT_WHITE.'%s'.RESET,params=>[$origin]});
+	open(W,"portmaster --show-work $origin | grep 'NOT INSTALLED' | awk '{print \$4}'|") or die "$!";
+	my @dependencies=<W>;
+	chomp @dependencies;
+	return(@dependencies);
+}
 # Run compilation of a port
 sub build_port {
 	my $dbh=shift;
 	my $port=shift;
+	my $world=shift;
+	my @dependencies=get_port_dependance($port);
+	if (scalar @dependencies gt 0) {
+		map {disp2({msg=>'> '.BRIGHT_WHITE.'%s'.RESET,params=>[$_]})} @dependencies;
+		foreach my $port (@dependencies) {
+			build_port($dbh,$port,0);
+		}
+	}
 	my @a=get_db_infos($dbh,$port,'log_size_lines');
 	# Returns [ [ id, field ] [ ... ] ]
 	# And I want the field of the last element
@@ -282,8 +298,8 @@ sub build_port {
 	parse_stats($dbh,$port,($end-$start));
 	# If everything went fine...
 	if ($ec == 0) {
-		store_stats($dbh,$port,($end-$start),$lines);
-		disp2({msg=>BRIGHT_WHITE.'%s'.RESET.' added to '.BRIGHT_BLUE.'world'.RESET,params=>[$port]}) unless ($ONESHOT);
+		store_stats($dbh,$port,($end-$start),$lines,$world);
+		disp2({msg=>BRIGHT_WHITE.'%s'.RESET.' added to '.BRIGHT_BLUE.'world'.RESET,params=>[$port]}) if ($world);
 	} else {
 		disp2({msg=>'Something failed with %s building: portmaster exits with %i',params=>[$port,$ec/256]});
 	}
@@ -297,14 +313,12 @@ sub parse_stats {
 
 # Store stats to database
 sub store_stats {
-	my $dbh=shift; my $o=shift; my $real=shift; my $lines=shift;
+	my $dbh=shift; my $o=shift; my $real=shift; my $lines=shift; my $world=shift;
 	my $mac=`uname -m|xargs echo -n`;		# Machine type (amd64, arm64, ...)
 	my $kvers=`uname -K|xargs`;	# Kerner version (1201000, ...)
 	my $arch=`uname -p|xargs`;	# Arch (amd64, aarch64,...
 	my $mem=`sysctl -n hw.physmem|xargs`;		# Physical amount of memory
 	my $cfreq=`sysctl -n dev.cpu.0.freq|xargs`;	# Cpu freq. May vary by sake of powerd(8)/powerdxx(8)
-	my $world=1;
-	$world=0 if ($ONESHOT);
 	my $sql=sprintf("insert into %s (origin,time_real,portmaster_options,mac,kernel_vers,arch,cpu_freq,memory,ccache,log_size_lines,world) values ('%s',%i,'%s','%s','%s','%s',%i,%i,%i,%i,%d);select last_insert_rowid();",$table{'stats'},$o,	$real,PM_OPTS, `uname -m| xargs echo -n`,`uname -K|xargs echo -n`,`uname -p | xargs echo -n`,`sysctl -n dev.cpu.0.freq| xargs echo -n`, `sysctl -n hw.physmem| xargs echo -n`, $env{'WITH_CCACHE_BUILD'} eq 'yes' ? 1 : 0, $lines,$world);
 	$dbh->selectall_array($sql);
 }
@@ -438,7 +452,7 @@ if ($STATS and (scalar @pkgs > 0 or $ALL)) {	# show stats about a package
 		disp2({msg=>'Nothing to build'});
 	}
 	foreach my $port (@pkgs) {
-		($exit_code{$port},$time_taken{$port})=build_port($dbh,$port);
+		($exit_code{$port},$time_taken{$port})=build_port($dbh,$port,$ONESHOT?0:1);
 	}
 	if (scalar keys %exit_code > 0) {
 		disp2({msg=>'Summary:'});
