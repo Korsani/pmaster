@@ -251,11 +251,27 @@ sub show_stats {
 sub get_port_dependencies {
 	my $origin=shift;
 	disp2({msg=>'Gathering dependencies of '.BRIGHT_WHITE.'%s'.RESET,params=>[$origin]});
-	open(W,"portmaster --show-work $origin | grep 'NOT INSTALLED' | awk '{print \$4}'|") or die "$!";
-	my @dependencies=<W>;
-	chomp @dependencies;
+	my @dependencies;
+	open(W,"portmaster --show-work $origin |") or die "$!";
+	while (my $l=<W>) {
+		# ===>>> NOT INSTALLED            x11/libXau
+		if ($l=~/.*NOT INSTALLED.*/) {
+			$l=(split /\s+/,$l)[3];
+		}
+		# ===>>> Installed ftp/curl
+		if ($l=~/===>>> Installed.*/) {
+			$l=(split /\s+/,$l)[2];
+			my $pkg_upd=`pkg version -L= -oO $l`;
+			if ($pkg_upd) {
+				$pkg_upd=~s/\s+.*//;
+				push @dependencies,($pkg_upd);
+			}
+		}
+	}
+	close(W);
+	chomp(@dependencies);
 	if (scalar @dependencies gt 0) {
-		disp2({msg=>BRIGHT_YELLOW.'%n'.RESET.' found',params=>[scalar @dependencies]});
+		disp2({msg=>BRIGHT_YELLOW.'%d'.RESET.' found',params=>[scalar @dependencies]});
 	} else {
 		disp2({msg=>'None found',params=>[]});
 	}
@@ -461,7 +477,7 @@ if ($STATS and (scalar @pkgs > 0 or $ALL)) {	# show stats about a package
 	}
 	if (scalar keys %exit_code > 0) {
 		disp2({msg=>'Summary:'});
-		map {disp2({msg=>'- %s%s:%s (in %is)',params=>[$ONESHOT?'':BRIGHT_BLUE.'w'.RESET.':',$_,$exit_code{$_}==0?BRIGHT_GREEN.'success'.RESET:BRIGHT_RED.'failure'.RESET,$time_taken{$_}]});} @pkgs;
+		map {disp2({msg=>'- %s'.BRIGHT_WHITE.'%s'.RESET.':%s (in %is)',params=>[$ONESHOT?'':BRIGHT_BLUE.'w'.RESET.':',$_,$exit_code{$_}==0?BRIGHT_GREEN.'success'.RESET:BRIGHT_RED.'failure'.RESET,$time_taken{$_}]});} @pkgs;
 	}
 }
 
