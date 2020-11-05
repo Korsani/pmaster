@@ -10,14 +10,14 @@ use File::Copy;
 use DBI;
 use Sys::Syslog qw( :standard :macros );
 use Time::HiRes;
-use constant VERSION	=> 0.8;
+use constant VERSION	=> 0.9;
 
 use constant DB_FILE	=> 'pmaster.db';
 use constant DB_DIR		=> '/var/db';
 use constant DB_VERS	=> 3;
 use constant PM_OPTS	=> '-dbg';
 
-use vars qw( $HELP $EXISTS $ALL $DEBUG $CURRENT $PROGRESS $LAST $VERSION $WAIT $STATS $SHOWWORLD $ADDWORLD $RMWORLD $ONESHOT $DRYRUN );
+use vars qw( $HELP $EXISTS $ALL $DEBUG $CURRENT $PROGRESS $LAST $VERSION $WAIT $STATS $SHOWWORLD $ADDWORLD $RMWORLD $ONESHOT $DRYRUN $ADDEXCL $SHOWEXCL $RMEXCL );
 
 die "Not on FreeBSD\n" unless ("$^O" =~ "freebsd");
 
@@ -36,7 +36,10 @@ GetOptions(
 	'dryrun|n'	=> \$DRYRUN,
 	'ls-world'	=> \$SHOWWORLD,
 	'add-world'	=> \$ADDWORLD,
-	'rm-world'	=> \$RMWORLD
+	'rm-world'	=> \$RMWORLD,
+	'add-excluded'	=> \$ADDEXCL,
+	'ls-excluded'	=> \$SHOWEXCL,
+	'rm-excluded'	=> \$RMEXCL,
 );
 if ($VERSION) {
 	printf("%s\n",VERSION);
@@ -465,6 +468,25 @@ if ($STATS and (scalar @pkgs > 0 or $ALL)) {	# show stats about a package
 	} else {
 		loop_on_me($dbh,{port=>'(idle)',progress=>'?',eta=>0});
 	}
+} elsif ($ADDEXCL) {
+	my $sql='insert into %s (origin) values ("%s")';
+	foreach my $port (@pkgs) {
+		disp({msg=>'Puting '.BRIGHT_WHITE.'%s'.RESET.' as excluded',params=>[$port]});
+		$sql=sprintf($sql,$table{'excludes'},$port);
+		$dbh->selectall_array($sql);
+	}
+} elsif ($RMEXCL) {
+	my $sql='delete from %s where origin="%s"';
+	foreach my $port (@pkgs) {
+		disp({msg=>'Removing '.BRIGHT_WHITE.'%s'.RESET.' from exclusion list',params=>[$port]});
+		$sql=sprintf($sql,$table{'excludes'},$port);
+		$dbh->selectall_array($sql);
+	}
+} elsif ($SHOWEXCL) {
+	my $sql='select origin from %s group by origin order by origin';
+	$sql=sprintf($sql,$table{'excludes'});
+	my @res=$dbh->selectall_array($sql);
+	map {my $a=$_;print @{$a}[0],"\n"} @res;
 } elsif ($SHOWWORLD) {
 	my $res=list_world($dbh);
 	if (scalar @{$res} > 0) {
@@ -521,6 +543,7 @@ if ($STATS and (scalar @pkgs > 0 or $ALL)) {	# show stats about a package
 	pmaster [ --debug ] --stats <port>|--all
 	pmaster [ --debug ] --wait <n>
 	pmaster [ --debug ] --ls-world | --add-world | --rm-world
+	pmaster [ --debug ] --ls-excluded | --add-excluded| --rm-excluded
 	pmaster --help
 
 =head1 DESCRIPTION
