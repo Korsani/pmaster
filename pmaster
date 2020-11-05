@@ -10,7 +10,7 @@ use File::Copy;
 use DBI;
 use Sys::Syslog qw( :standard :macros );
 use Time::HiRes;
-use constant VERSION	=> 0.7;
+use constant VERSION	=> 0.8;
 
 use constant DB_FILE	=> 'pmaster.db';
 use constant DB_DIR		=> '/var/db';
@@ -257,6 +257,7 @@ sub get_port_dependencies {
 		# ===>>> NOT INSTALLED            x11/libXau
 		if ($l=~/.*NOT INSTALLED.*/) {
 			$l=(split /\s+/,$l)[3];
+			push @dependencies,($l);
 		}
 		# ===>>> Installed ftp/curl
 		if ($l=~/===>>> Installed.*/) {
@@ -552,7 +553,7 @@ Show statistics about port(s), or all if B<--all> is specified.
 
 Wait forever, logging to syslog every B<n> seconds what's going on.
 
-=item --ls-world, --add-world, --rm-world
+=item --*-world (--ls-world, --add-world, --rm-world)
 
 Show/add/remove ports from `world` list.
 
