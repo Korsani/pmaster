@@ -14,7 +14,7 @@ use constant VERSION	=> 0.8;
 
 use constant DB_FILE	=> 'pmaster.db';
 use constant DB_DIR		=> '/var/db';
-use constant DB_VERS	=> 2;
+use constant DB_VERS	=> 3;
 use constant PM_OPTS	=> '-dbg';
 
 use vars qw( $HELP $EXISTS $ALL $DEBUG $CURRENT $PROGRESS $LAST $VERSION $WAIT $STATS $SHOWWORLD $ADDWORLD $RMWORLD $ONESHOT $DRYRUN );
@@ -52,7 +52,8 @@ my $DRIVER='SQLite';
 my $DSN="DBI:$DRIVER:dbname=".DB_DIR.'/'.DB_FILE;
 my %table=(
 	'stats'=>'pmaster_stats',
-	'config'=>'pmaster_config'
+	'config'=>'pmaster_config',
+	'excludes'=>'pmaster_excludes'
 );
 # Sql statements to create table
 my %create_table=(
@@ -62,14 +63,15 @@ my %create_table=(
 );
 # Sql statements to update database
 my %update_table=(
-	2=>'alter table '.$table{'stats'}.' add world boolean default true'
+	2=>'alter table '.$table{'stats'}.' add world boolean default true',
+	3=>'create table '.$table{'excludes'}.' (origin text)'
 );
 
 our %env;
 our %exit_code;
 our %time_taken;
 
-sub disp2 {
+sub disp {
 	my %msg=%{shift()};
 	$msg{'prefix'}=1 if (not defined $msg{'prefix'});
 	if ($msg{'prefix'}) {
@@ -97,36 +99,37 @@ sub check_db_tables {
 	foreach my $table (values %table) {
 		if (! $dbh->selectall_array('SELECT name FROM sqlite_master WHERE type="table" AND name="'.$table.'";')) {
 			my @res=$dbh->selectall_array($create_table{$table});
-			disp2({msg=>"Table %s created",params=>[$table]});
+			disp({msg=>"Table %s created",params=>[$table]});
 		} elsif ($DEBUG) {
-			disp2({msg=>"Table %s ok",params=>[$table]});
+			disp({msg=>"Table %s ok",params=>[$table]});
 		}
 	}
 }
 sub check_db_version {
 	my $dbh=shift;
 	my $sql=sprintf('select value from %s where key="%s";',$table{'config'},'db_vers');
-	my $db_vers=$dbh->selectall_array($sql);
+	my $db_vers=($dbh->selectall_array($sql))[0][0];
 	# None? Maybe db is juste created
 	if($db_vers == 0) {;
 		$sql=sprintf('insert into %s (key,value) values ("db_vers",%i);',$table{'config'},DB_VERS);
 		$dbh->selectall_array($sql);
-		disp2({msg=>'Db version set to %i',params=>[DB_VERS]});
+		disp({msg=>'Db version set to %i',params=>[DB_VERS]});
 	} elsif ($db_vers < DB_VERS) {		# Time to upgrade!
 		foreach my $i ($db_vers+1..DB_VERS) {
+			disp({msg=>'Updating %d to %d',params=>[$db_vers,$i]}) if ($DEBUG);
 			$dbh->selectall_array($update_table{$i});
 			$sql=sprintf('update %s set value=%i where key="db_vers";',$table{'config'},$i);
 			$dbh->selectall_array($sql);
-			disp2({msg=>'Database schema version set to %d',params=>[$i]}) if ($DEBUG);
+			disp({msg=>'Database schema version set to %d',params=>[$i]}) if ($DEBUG);
 		}
 	} else {
-		disp2({msg=>'Database schema version: %d',params=>[$db_vers]}) if ($DEBUG);
+		disp({msg=>'Database schema version: %d',params=>[$db_vers]}) if ($DEBUG);
 	}
 }
 sub check_db_path {
 	for my $dir ($ENV{'HOME'}) {
 		if ( -e $dir.'/'.DB_FILE) {
-			disp2({msg=>'Moving %s from %s to %s',params=>[DB_FILE,$dir,DB_DIR]});
+			disp({msg=>'Moving %s from %s to %s',params=>[DB_FILE,$dir,DB_DIR]});
 			move($dir.'/'.DB_FILE,DB_DIR);
 		}
 	}
@@ -157,7 +160,7 @@ sub get_make_vars {
 	foreach my $var (@vars) {
 		my @res=$dbh->selectall_array('select value from '.$table{'config'}.' where key="'.uc($var).'";');
 		if(scalar @res == 0) {
-			disp2({msg=>'No var %s found in config. Getting it',params=>[$var]}) if ($DEBUG);
+			disp({msg=>'No var %s found in config. Getting it',params=>[$var]}) if ($DEBUG);
 			my $value=get_make_var($var);
 			$dbh->selectall_array('insert into '.$table{'config'}.' (key,value) values ("'.$var.'","'.$value.'");');
 			$env{$var}=$value;
@@ -199,11 +202,11 @@ sub resolve_origin {
 	chomp $kvers;
 	$kvers=~s/^(..).*/$1/;
 	while (my $pkg=shift) {
-		disp2({msg=>'Resolving '.BRIGHT_WHITE.'%s'.RESET,params=>[$pkg]}) if ($DEBUG);
+		disp({msg=>'Resolving '.BRIGHT_WHITE.'%s'.RESET,params=>[$pkg]}) if ($DEBUG);
 		my @ports=`pkg info -o $pkg 2>/dev/null | awk '{print \$2}'`;
 		chomp @ports;
 		if ( scalar @ports == 0) {
-			disp2({msg=>'Not found by pkg(1). Searching in INDEX'}) if ($DEBUG);
+			disp({msg=>'Not found by pkg(1). Searching in INDEX'}) if ($DEBUG);
 			# So it's a package I don't know about. Let's search in INDEX
 			open(I,"<$env{PORTSDIR}/INDEX-$kvers") or die "$!";
 			while (my $line = <I>) {
@@ -216,12 +219,12 @@ sub resolve_origin {
 			close(I);
 		}
 		if (scalar @ports == 0) {
-			disp2({msg=>'No origin found for '.BRIGHT_WHITE.'%s'.RESET,params=>[$pkg]});
+			disp({msg=>'No origin found for '.BRIGHT_WHITE.'%s'.RESET,params=>[$pkg]});
 		} elsif (scalar @ports == 1) {
-			disp2({msg=>'%s ~> %s',params=>[$pkg,$ports[0]]}) if ($DEBUG);
+			disp({msg=>'%s ~> %s',params=>[$pkg,$ports[0]]}) if ($DEBUG);
 			push @origins,($ports[0]);
 		} else {
-			disp2({msg=>'More than one origin found for %s',params=>[$pkg]}) if ($DEBUG);
+			disp({msg=>'More than one origin found for %s',params=>[$pkg]}) if ($DEBUG);
 		}
 	}
 	return @origins;
@@ -244,37 +247,54 @@ sub show_stats {
 			foreach my $e (@res) {
 				push @times,(join(' => ',@{ $e }));
 			}
-			disp2({prefix=>0,msg=>YELLOW.'%s'.RESET.":\n\t".CYAN."Average duration:".RESET." %0is\n\t".CYAN."Series: \n".RESET."%s",params=>[$port,get_port_stats($dbh,$port),join("\n",@times)]});
+			disp({prefix=>0,msg=>YELLOW.'%s'.RESET.":\n\t".CYAN."Average duration:".RESET." %0is\n\t".CYAN."Series: \n".RESET."%s",params=>[$port,get_port_stats($dbh,$port),join("\n",@times)]});
 		}
 	}
 }
-sub get_port_dependencies {
+# Check wether a port is in the exclusion list
+sub is_excluded {
+	my $dbh=shift;
 	my $origin=shift;
-	disp2({msg=>'Gathering dependencies of '.BRIGHT_WHITE.'%s'.RESET,params=>[$origin]});
+	my $sql=sprintf('select origin from %s where origin="%s"',$table{'excludes'},$origin);
+	my @res=($dbh->selectall_array($sql))[0];
+	return scalar @res;
+}
+
+sub get_port_dependencies {
+	my $dbh=shift;
+	my $origin=shift;
+	disp({msg=>'Gathering dependencies of '.BRIGHT_WHITE.'%s'.RESET,params=>[$origin]});
 	my @dependencies;
 	open(W,"portmaster --show-work $origin |") or die "$!";
 	while (my $l=<W>) {
 		# ===>>> NOT INSTALLED            x11/libXau
 		if ($l=~/.*NOT INSTALLED.*/) {
 			$l=(split /\s+/,$l)[3];
+			disp({msg=>BRIGHT_WHITE.'%s'.RESET.' not installed, adding',params=>[$l]}) if ($DEBUG);
 			push @dependencies,($l);
-		}
-		# ===>>> Installed ftp/curl
-		if ($l=~/===>>> Installed.*/) {
+		} elsif ($l=~/===>>> Installed.*/) {
+			# ===>>> Installed ftp/curl
 			$l=(split /\s+/,$l)[2];
+			disp({msg=>BRIGHT_WHITE.'%s'.RESET.' installed, checking updates',params=>[$l]}) if ($DEBUG);
 			my $pkg_upd=`pkg version -L= -oO $l`;
+			chomp $pkg_upd;
 			if ($pkg_upd) {
 				$pkg_upd=~s/\s+.*//;
-				push @dependencies,($pkg_upd);
+				if (is_excluded($dbh,$pkg_upd)) {
+					disp({msg=>BRIGHT_WHITE.'%s'.RESET.' is installed and to be updated BUT in exclusion list',params=>[$pkg_upd]}) if ($DEBUG);
+				} else {
+					disp({msg=>BRIGHT_WHITE.'%s'.RESET.' is to be updated',params=>[$pkg_upd]}) if ($DEBUG);
+					push @dependencies,($pkg_upd) unless (is_excluded($dbh,$pkg_upd));
+				}
 			}
 		}
 	}
 	close(W);
 	chomp(@dependencies);
 	if (scalar @dependencies gt 0) {
-		disp2({msg=>BRIGHT_YELLOW.'%d'.RESET.' found',params=>[scalar @dependencies]});
+		disp({msg=>BRIGHT_YELLOW.'%d'.RESET.' found',params=>[scalar @dependencies]});
 	} else {
-		disp2({msg=>'None found',params=>[]});
+		disp({msg=>'None found',params=>[]});
 	}
 	return(@dependencies);
 }
@@ -283,9 +303,9 @@ sub build_port {
 	my $dbh=shift;
 	my $port=shift;
 	my $world=shift;
-	my @dependencies=get_port_dependencies($port);
+	my @dependencies=get_port_dependencies($dbh,$port);
 	if (scalar @dependencies gt 0) {
-		map {disp2({msg=>'> '.BRIGHT_WHITE.'%s'.RESET,params=>[$_]})} @dependencies;
+		map {disp({msg=>'> '.BRIGHT_WHITE.'%s'.RESET,params=>[$_]})} @dependencies;
 		foreach my $port (@dependencies) {
 			build_port($dbh,$port,0);
 		}
@@ -295,9 +315,9 @@ sub build_port {
 	# And I want the field of the last element
 	my $lines=@{ $a[-1]}[1];
 	my $time=get_port_stats($dbh,$port)||'?';
-	disp2({msg=>'Building '.BRIGHT_WHITE.'%s'.RESET.' (~'.BRIGHT_WHITE.'%s'.RESET.'s)',params=>[$port,$time]});
+	disp({msg=>'Building '.BRIGHT_WHITE.'%s'.RESET.' (~'.BRIGHT_WHITE.'%s'.RESET.'s)',params=>[$port,$time]});
 	if ($DRYRUN) {
-		disp2({msg=>'Dry run asked'});
+		disp({msg=>'Dry run asked'});
 		return(0,0);
 	}
 	# If line size is available and progress is asked
@@ -321,16 +341,16 @@ sub build_port {
 	# If everything went fine...
 	if ($ec == 0) {
 		store_stats($dbh,$port,($end-$start),$lines,$world);
-		disp2({msg=>BRIGHT_WHITE.'%s'.RESET.' added to '.BRIGHT_BLUE.'world'.RESET,params=>[$port]}) if ($world);
+		disp({msg=>BRIGHT_WHITE.'%s'.RESET.' added to '.BRIGHT_BLUE.'world'.RESET,params=>[$port]}) if ($world);
 	} else {
-		disp2({msg=>'Something failed with %s building: portmaster exits with %i',params=>[$port,$ec/256]});
+		disp({msg=>'Something failed with %s building: portmaster exits with %i',params=>[$port,$ec/256]});
 	}
 	return(($ec/256,$end-$start));
 }
 sub parse_stats {
 	my $dbh=shift; my $o=shift; my $real=shift;
 	my $time=get_port_stats($dbh,$o)||1;
-	disp2({msg=>'%s: '.BRIGHT_WHITE.'%is'.RESET.'? %is! d:%is s:%-.02f%%',params=>[$o,$time,$real,$real-$time,$real*100/$time]});
+	disp({msg=>'%s: '.BRIGHT_WHITE.'%is'.RESET.'? %is! d:%is s:%-.02f%%',params=>[$o,$time,$real,$real-$time,$real*100/$time]});
 }
 
 # Store stats to database
@@ -363,20 +383,20 @@ sub get_running_port {
 	my @list=glob ( "$env{'WRKDIRPREFIX'}$env{'PORTSDIR'}/*/*/work*" );
 	my %res;
 	if (scalar @list == 0) {
-		disp2({msg=>'No ongoing work found',params=>[]}) unless ($WAIT);
+		disp({msg=>'No ongoing work found',params=>[]}) unless ($WAIT);
 		return \%res;
 	}
 	foreach my $w (@list) {
 		my $port=$w;
 		$port=~s!$env{'WRKDIRPREFIX'}$env{'PORTSDIR'}/(.*)/work.*!$1!;
-		disp2({msg=>'Dealing with '.BRIGHT_WHITE.'%s'.RESET.' ~ %s',params=>[$w,$port]}) if ($DEBUG);
+		disp({msg=>'Dealing with '.BRIGHT_WHITE.'%s'.RESET.' ~ %s',params=>[$w,$port]}) if ($DEBUG);
 		# This is the best way I found to detect ongoing portmaster:
 		# There should have more at least one process with `make` and $WRKDIRPREFIX$PORTSDIR<port>/work somewhere...
 		my $npid=`ps -a | grep -v grep | grep '$w' | awk '{print \$1}'| wc -l|xargs`;
 		chomp $npid;
 		if ($npid > 0) {
 			exit 0 if ($EXISTS);
-			disp2({msg=>'Compilation in '.BRIGHT_WHITE.'%s'.RESET.' is ongoing',params=>[$w]}) if ($DEBUG);
+			disp({msg=>'Compilation in '.BRIGHT_WHITE.'%s'.RESET.' is ongoing',params=>[$w]}) if ($DEBUG);
 			# When base dir has been created?
 			my @stats=stat($env{'WRKDIRPREFIX'}.$env{'PORTSDIR'}.'/'.$port);
 			my $eta='?';my $progress='?';
@@ -386,13 +406,13 @@ sub get_running_port {
 			}
 			$res{$port}={port=>$port,start_time=>$stats[10],eta=>$eta,progress=>$progress};
 		} else {
-			disp2({msg=>'No process seems to handle compilation in '.BRIGHT_WHITE.'%s'.RESET,params=>[$w]}) if ($DEBUG);
+			disp({msg=>'No process seems to handle compilation in '.BRIGHT_WHITE.'%s'.RESET,params=>[$w]}) if ($DEBUG);
 		}
 	}
 	if (scalar keys %res == 0) {
-		disp2({msg=>BRIGHT_WHITE.'%d stall work(s) found:'.RESET,params=>[scalar @list]}) if ($DEBUG or ! $WAIT);
+		disp({msg=>BRIGHT_WHITE.'%d stall work(s) found:'.RESET,params=>[scalar @list]}) if ($DEBUG or ! $WAIT);
 		foreach my $w (@list) {
-			disp2({msg=>'> %s',params=>[$w]}) if ($DEBUG or ! $WAIT);
+			disp({msg=>'> %s',params=>[$w]}) if ($DEBUG or ! $WAIT);
 		}
 	}
 	return \%res;
@@ -405,7 +425,7 @@ sub list_world {
 }
 
 my $dbh=DBI->connect($DSN,'','',{RaiseError => 1}) or die $DBI::errstr;
-disp2({msg=>"Database:%s",params=>[$DSN]}) if ($DEBUG);
+disp({msg=>"Database:%s",params=>[$DSN]}) if ($DEBUG);
 
 check_db($dbh);
 
@@ -434,7 +454,7 @@ if ($STATS and (scalar @pkgs > 0 or $ALL)) {	# show stats about a package
 	if ($a) {
 		my $i=1;
 		foreach my $k (keys %{$a}) {
-			disp2({prefix=>0,msg=>WHITE.'<'.$i++.'>'.RESET.' '.YELLOW.'%s'.RESET.":\n\t".CYAN.'Started'.RESET.": %s\n\t".CYAN.'Elapsed'.RESET.": %0is\n\t".CYAN.'ETA'.RESET.": %s\n\t".CYAN.'Progress'.RESET.": %2s%%",params=>[$a->{$k}{'port'},scalar localtime $a->{$k}{'start_time'},Time::HiRes::time()-$a->{$k}{'start_time'},($a->{$k}{'eta'} eq '?'?'?' : ($a->{$k}{'eta'}.'s ('.scalar localtime (time()+$a->{$k}{'eta'})).')'),$a->{$k}{'progress'}]});
+			disp({prefix=>0,msg=>WHITE.'<'.$i++.'>'.RESET.' '.YELLOW.'%s'.RESET.":\n\t".CYAN.'Started'.RESET.": %s\n\t".CYAN.'Elapsed'.RESET.": %0is\n\t".CYAN.'ETA'.RESET.": %s\n\t".CYAN.'Progress'.RESET.": %2s%%",params=>[$a->{$k}{'port'},scalar localtime $a->{$k}{'start_time'},Time::HiRes::time()-$a->{$k}{'start_time'},($a->{$k}{'eta'} eq '?'?'?' : ($a->{$k}{'eta'}.'s ('.scalar localtime (time()+$a->{$k}{'eta'})).')'),$a->{$k}{'progress'}]});
 		}
 	}
 } elsif ($WAIT) {
@@ -452,33 +472,37 @@ if ($STATS and (scalar @pkgs > 0 or $ALL)) {	# show stats about a package
 			my $port=shift @{$aport};
 			system("pkg info -e $port");
 			# Display only installed ports
-			disp2({prefix=>0,msg=>'%s',params=>[$port]}) if ($?==0);
+			disp({prefix=>0,msg=>'%s',params=>[$port]}) if ($?==0);
 		}
 	} 
 } elsif ($RMWORLD) {
 	my $sql='update %s set world=false where origin="%s"';
 	foreach my $port (@pkgs) {
-		disp2({msg=>'Puting '.BRIGHT_WHITE.'%s'.RESET.' out of '.BRIGHT_BLUE.'world'.RESET,params=>[$port]});
+		disp({msg=>'Puting '.BRIGHT_WHITE.'%s'.RESET.' out of '.BRIGHT_BLUE.'world'.RESET,params=>[$port]});
 		$sql=sprintf($sql,$table{'stats'},$port);
 		$dbh->selectall_array($sql);
 	}
 } elsif ($ADDWORLD) {
 	my $sql='update %s set world=true where origin="%s"';
 	foreach my $port (@pkgs) {
-		disp2({msg=>'Puting '.BRIGHT_WHITE.'%s'.RESET.' in '.BRIGHT_BLUE.'world'.RESET,params=>[$port]});
+		disp({msg=>'Puting '.BRIGHT_WHITE.'%s'.RESET.' in '.BRIGHT_BLUE.'world'.RESET,params=>[$port]});
 		$sql=sprintf($sql,$table{'stats'},$port);
 		$dbh->selectall_array($sql);
 	}
 } else {		# Compile ports
 	if (scalar @pkgs == 0) {
-		disp2({msg=>'Nothing to build'});
+		disp({msg=>'Nothing to build'});
 	}
 	foreach my $port (@pkgs) {
-		($exit_code{$port},$time_taken{$port})=build_port($dbh,$port,$ONESHOT?0:1);
+		if (is_excluded($dbh,$port)) {
+			disp({msg=>BRIGHT_WHITE.'%s'.RESET.' is in the excluded list',params=>[$port]});
+		} else {
+			($exit_code{$port},$time_taken{$port})=build_port($dbh,$port,$ONESHOT?0:1);
+		}
 	}
 	if (scalar keys %exit_code > 0) {
-		disp2({msg=>'Summary:'});
-		map {disp2({msg=>'- %s'.BRIGHT_WHITE.'%s'.RESET.':%s (in %is)',params=>[$ONESHOT?'':BRIGHT_BLUE.'w'.RESET.':',$_,$exit_code{$_}==0?BRIGHT_GREEN.'success'.RESET:BRIGHT_RED.'failure'.RESET,$time_taken{$_}]});} @pkgs;
+		disp({msg=>'Summary:'});
+		map {disp({msg=>'- %s'.BRIGHT_WHITE.'%s'.RESET.':%s (in %is)',params=>[$ONESHOT?'':BRIGHT_BLUE.'w'.RESET.':',$_,$exit_code{$_}==0?BRIGHT_GREEN.'success'.RESET:BRIGHT_RED.'failure'.RESET,$time_taken{$_}]});} @pkgs;
 	}
 }
 
