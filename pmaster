@@ -22,7 +22,7 @@ use vars qw( $HELP $EXISTS $ALL $DEBUG $CURRENT $PROGRESS $LAST $VERSION $WAIT $
 die "Not on FreeBSD\n" unless ("$^O" =~ "freebsd");
 
 GetOptions(
-	'help'		=> \$HELP,
+	'help+'		=> \$HELP,
 	'exists'	=> \$EXISTS,
 	'all'		=> \$ALL,
 	'debug'		=> \$DEBUG,
@@ -46,8 +46,8 @@ if ($VERSION) {
 	exit 0;
 }
 
-if ($HELP) {
-	pod2usage(-verbose => 2);
+if (defined $HELP) {
+	pod2usage(-verbose => $HELP-1);
 	exit;
 }
 
@@ -535,19 +535,18 @@ if ($STATS and (scalar @pkgs > 0 or $ALL)) {	# show stats about a package
 
 =head1 NAME
 
-	pmaster
+	portmaster(1) companion
 
 =head1 SYNOPSIS
 
 	pmaster [ --debug ] [ --progress ] [ --oneshot|-1 ] [ --dryrun ] <port>
-	pmaster [ --debug ] --current 
-	pmaster [ --debug ] --exists
+	pmaster [ --debug ] --current [ --exists ]
 	pmaster [ --debug ] --last
 	pmaster [ --debug ] --stats <port>|--all
 	pmaster [ --debug ] --wait <n>
 	pmaster [ --debug ] --ls-world | --add-world | --rm-world [ <port> ]
 	pmaster [ --debug ] --ls-excluded | --add-excluded | --rm-excluded [ <port> ]
-	pmaster --help
+	pmaster --help [ --help [ --help ] ]
 
 =head1 DESCRIPTION
 
@@ -571,6 +570,8 @@ Build this port with portmaster(8).
 
 Show currently building port.
 
+Return immediately with true if a compilation is ongoing and B<--exists> is specified.
+
 =item --debug
 
 Show debugging informations.
@@ -585,13 +586,11 @@ List / add / remove ports to the excluded list.
 
 Ports added to that list will not be updated or built.
 
-=item --exists
-
-Immediatly return with true if a compilation is running.
-
 =item --help
 
 Help?
+
+Specify up to three times for a more detailed help.
 
 =item --last
 
