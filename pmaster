@@ -10,7 +10,7 @@ use File::Copy;
 use DBI;
 use Sys::Syslog qw( :standard :macros );
 use Time::HiRes;
-use constant VERSION	=> 0.9;
+use constant VERSION	=> '0.10';
 
 use constant DB_FILE	=> 'pmaster.db';
 use constant DB_DIR		=> '/var/db';
@@ -71,8 +71,6 @@ my %update_table=(
 );
 
 our %env;
-our %exit_code;
-our %time_taken;
 
 sub disp {
 	my %msg=%{shift()};
@@ -306,11 +304,12 @@ sub build_port {
 	my $dbh=shift;
 	my $port=shift;
 	my $world=shift;
+	my %built_ports;	# Keep track of built ports, particularly those that ports depend on
 	my @dependencies=get_port_deps($dbh,$port);
 	if (scalar @dependencies gt 0) {
 		map {disp({msg=>'> '.BRIGHT_WHITE.'%s'.RESET,params=>[$_]})} @dependencies;
 		foreach my $port (@dependencies) {
-			build_port($dbh,$port,0);
+			%built_ports=(%built_ports,build_port($dbh,$port,0));
 		}
 	}
 	my @a=get_db_infos($dbh,$port,'log_size_lines');
@@ -321,7 +320,7 @@ sub build_port {
 	disp({msg=>'Building '.BRIGHT_WHITE.'%s'.RESET.' (~'.BRIGHT_WHITE.'%s'.RESET.'s)',params=>[$port,$time]});
 	if ($DRYRUN) {
 		disp({msg=>'Dry run asked'});
-		return(0,0);
+		return(undef);
 	}
 	# If line size is available and progress is asked
 	my $start=Time::HiRes::time();
@@ -348,12 +347,13 @@ sub build_port {
 	} else {
 		disp({msg=>'Something failed with %s building: portmaster exits with %i',params=>[$port,$ec/256]});
 	}
-	return(($ec/256,$end-$start));
+	$built_ports{$port}={'return_code'=>$ec/256,'time_taken'=>$end-$start};
+	return(%built_ports);
 }
 sub parse_stats {
 	my $dbh=shift; my $o=shift; my $real=shift;
 	my $time=get_port_stats($dbh,$o)||1;
-	disp({msg=>'%s: '.BRIGHT_WHITE.'%is'.RESET.'? %is! d:%is s:%-.02f%%',params=>[$o,$time,$real,$real-$time,$real*100/$time]})u
+	disp({msg=>'%s: '.BRIGHT_WHITE.'%is'.RESET.'? %is! d:%is s:%-.02f%%',params=>[$o,$time,$real,$real-$time,$real*100/$time]});
 }
 
 # Store stats to database
@@ -512,19 +512,22 @@ if ($STATS and (scalar @pkgs > 0 or $ALL)) {	# show stats about a package
 		$dbh->selectall_array($sql);
 	}
 } else {		# Compile ports
+	my %built_ports;
 	if (scalar @pkgs == 0) {
 		disp({msg=>'Nothing to build'});
 	}
 	foreach my $port (@pkgs) {
 		if (is_excluded($dbh,$port)) {
 			disp({msg=>BRIGHT_WHITE.'%s'.RESET.' is in the excluded list',params=>[$port]});
+		} elsif (defined $built_ports{$port}) {
+			disp({msg=>BRIGHT_WHITE.'%s'.RESET.' already built in this session',params=>[$port]});
 		} else {
-			($exit_code{$port},$time_taken{$port})=build_port($dbh,$port,$ONESHOT?0:1);
+			%built_ports=build_port($dbh,$port,$ONESHOT?0:1);
 		}
 	}
-	if (scalar keys %exit_code > 0) {
+	if (scalar keys %built_ports > 0) {
 		disp({msg=>'Summary:'});
-		map {disp({msg=>'- %s'.BRIGHT_WHITE.'%s'.RESET.':%s (in %is)',params=>[$ONESHOT?'':BRIGHT_BLUE.'w'.RESET.':',$_,$exit_code{$_}==0?BRIGHT_GREEN.'success'.RESET:BRIGHT_RED.'failure'.RESET,$time_taken{$_}]});} @pkgs;
+		map {disp({msg=>'- %s'.BRIGHT_WHITE.'%s'.RESET.':%s (in %is)',params=>[$ONESHOT?'':BRIGHT_BLUE.'w'.RESET.':',$_,$built_ports{$_}{'return_code'}==0?BRIGHT_GREEN.'success'.RESET:BRIGHT_RED.'failure'.RESET,$built_ports{$_}{'time_taken'}]});} keys %built_ports;
 	}
 }
 
