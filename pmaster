@@ -596,6 +596,10 @@ List / add / remove ports to the excluded list.
 
 Ports added to that list will not be updated or built.
 
+=item --force
+
+Force building even if port is in the exclusion list.
+
 =item --help
 
 Help?
