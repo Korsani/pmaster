@@ -10,36 +10,39 @@ use File::Copy;
 use DBI;
 use Sys::Syslog qw( :standard :macros );
 use Time::HiRes;
-use constant VERSION	=> '0.10';
+use constant VERSION	=> '0.11';
 
 use constant DB_FILE	=> 'pmaster.db';
 use constant DB_DIR		=> '/var/db';
 use constant DB_VERS	=> 3;
 use constant PM_OPTS	=> '-dbg';
 
-use vars qw( $HELP $EXISTS $ALL $DEBUG $CURRENT $PROGRESS $LAST $VERSION $WAIT $STATS $SHOWWORLD $ADDWORLD $RMWORLD $ONESHOT $DRYRUN $ADDEXCL $SHOWEXCL $RMEXCL );
+use vars qw( $HELP $EXISTS $ALL $DEBUG $CURRENT $PROGRESS $LAST $VERSION $WAIT $STATS $SHOWWORLD $ADDWORLD $RMWORLD $ONESHOT $DRYRUN $ADDEXCL $SHOWEXCL $RMEXCL $QUIET $INTERACT $FORCE);
 
 die "Not on FreeBSD\n" unless ("$^O" =~ "freebsd");
 
 GetOptions(
-	'help+'		=> \$HELP,
-	'exists'	=> \$EXISTS,
+	'add-excluded'	=> \$ADDEXCL,
+	'add-world'	=> \$ADDWORLD,
 	'all'		=> \$ALL,
-	'debug'		=> \$DEBUG,
 	'current'	=> \$CURRENT,
-	'progress'	=> \$PROGRESS,
+	'debug'		=> \$DEBUG,
+	'dryrun|n'	=> \$DRYRUN,
+	'exists'	=> \$EXISTS,
+	'force'		=> \$FORCE,
+	'help+'		=> \$HELP,
+	'interactive'=> \$INTERACT,
 	'last'		=> \$LAST,
+	'ls-excluded'	=> \$SHOWEXCL,
+	'ls-world'	=> \$SHOWWORLD,
+	'oneshot|1'	=> \$ONESHOT,
+	'progress'	=> \$PROGRESS,
+	'quiet'		=> \$QUIET,
+	'rm-excluded'	=> \$RMEXCL,
+	'rm-world'	=> \$RMWORLD,
+	'stats'		=> \$STATS,
 	'version'	=> \$VERSION,
 	'wait=i'	=> \$WAIT,
-	'stats'		=> \$STATS,
-	'oneshot|1'	=> \$ONESHOT,
-	'dryrun|n'	=> \$DRYRUN,
-	'ls-world'	=> \$SHOWWORLD,
-	'add-world'	=> \$ADDWORLD,
-	'rm-world'	=> \$RMWORLD,
-	'add-excluded'	=> \$ADDEXCL,
-	'ls-excluded'	=> \$SHOWEXCL,
-	'rm-excluded'	=> \$RMEXCL,
 );
 if ($VERSION) {
 	printf("%s\n",VERSION);
@@ -211,7 +214,7 @@ sub resolve_origin {
 			# So it's a package I don't know about. Let's search in INDEX
 			open(I,"<$env{PORTSDIR}/INDEX-$kvers") or die "$!";
 			while (my $line = <I>) {
-				if ($line =~ /$env{PORTSDIR}\/[\w\-]*\/$pkg\|/i) {
+				if ($line =~ /$env{PORTSDIR}\/[\w\-]*\/?$pkg\|/i) {
 					my $port=((split(/\|/,$line))[1]);
 					$port=~s/$env{PORTSDIR}\///;
 					push @ports,$port;
@@ -320,8 +323,14 @@ sub build_port {
 	disp({msg=>'Building '.BRIGHT_WHITE.'%s'.RESET.' (~'.BRIGHT_WHITE.'%s'.RESET.'s)',params=>[$port,$time]});
 	if ($DRYRUN) {
 		disp({msg=>'Dry run asked'});
-		return(undef);
+		return(());
 	}
+	if ($INTERACT) {
+		disp({msg=>'Ready? (Yn)'});
+		my $r=<STDIN>;
+		chomp $r;
+		return(()) if ($r=~/^n.*/i);
+	}	
 	# If line size is available and progress is asked
 	my $start=Time::HiRes::time();
 	my $ec=0;
@@ -347,7 +356,7 @@ sub build_port {
 	} else {
 		disp({msg=>'Something failed with %s building: portmaster exits with %i',params=>[$port,$ec/256]});
 	}
-	$built_ports{$port}={'return_code'=>$ec/256,'time_taken'=>$end-$start};
+	$built_ports{$port}={'world'=>$world,'return_code'=>$ec/256,'time_taken'=>$end-$start};
 	return(%built_ports);
 }
 sub parse_stats {
@@ -373,7 +382,7 @@ sub loop_on_me {
 	while (1) {
 		if ($a) {
 			foreach my $k (keys %{$a}) {
-				my $mess=sprintf('%s:%s%%',$a->{$k}{'port'},$a->{$k}{'progress'});
+				my $mess=sprintf('%s:%s%% (started %ds ago)',$a->{$k}{'port'},$a->{$k}{'progress'},time()-$a->{$k}{'start_time'});
 				syslog(LOG_INFO,$mess);
 			}
 		}
@@ -498,8 +507,8 @@ if ($STATS and (scalar @pkgs > 0 or $ALL)) {	# show stats about a package
 		}
 	} 
 } elsif ($RMWORLD) {
-	my $sql='update %s set world=false where origin="%s"';
 	foreach my $port (@pkgs) {
+		my $sql='update %s set world=false where origin="%s"';
 		disp({msg=>'Puting '.BRIGHT_WHITE.'%s'.RESET.' out of '.BRIGHT_BLUE.'world'.RESET,params=>[$port]});
 		$sql=sprintf($sql,$table{'stats'},$port);
 		$dbh->selectall_array($sql);
@@ -517,17 +526,17 @@ if ($STATS and (scalar @pkgs > 0 or $ALL)) {	# show stats about a package
 		disp({msg=>'Nothing to build'});
 	}
 	foreach my $port (@pkgs) {
-		if (is_excluded($dbh,$port)) {
+		if (is_excluded($dbh,$port) and ! $FORCE ) {
 			disp({msg=>BRIGHT_WHITE.'%s'.RESET.' is in the excluded list',params=>[$port]});
 		} elsif (defined $built_ports{$port}) {
 			disp({msg=>BRIGHT_WHITE.'%s'.RESET.' already built in this session',params=>[$port]});
 		} else {
-			%built_ports=build_port($dbh,$port,$ONESHOT?0:1);
+			%built_ports=(%built_ports,build_port($dbh,$port,$ONESHOT?0:1));
 		}
 	}
 	if (scalar keys %built_ports > 0) {
 		disp({msg=>'Summary:'});
-		map {disp({msg=>'- %s'.BRIGHT_WHITE.'%s'.RESET.':%s (in %is)',params=>[$ONESHOT?'':BRIGHT_BLUE.'w'.RESET.':',$_,$built_ports{$_}{'return_code'}==0?BRIGHT_GREEN.'success'.RESET:BRIGHT_RED.'failure'.RESET,$built_ports{$_}{'time_taken'}]});} keys %built_ports;
+		map {disp({msg=>'- %s'.BRIGHT_WHITE.'%s'.RESET.':%s (in %is)',params=>[$built_ports{$_}{'world'}?BRIGHT_BLUE.'w'.RESET.':':'  ',$_,$built_ports{$_}{'return_code'}==0?BRIGHT_GREEN.'success'.RESET:BRIGHT_RED.'failure'.RESET,$built_ports{$_}{'time_taken'}]});} keys %built_ports;
 	}
 }
 
@@ -535,11 +544,11 @@ if ($STATS and (scalar @pkgs > 0 or $ALL)) {	# show stats about a package
 
 =head1 NAME
 
-	portmaster(1) companion
+	portmaster(8) companion
 
 =head1 SYNOPSIS
 
-	pmaster [ --debug ] [ --progress ] [ --oneshot|-1 ] [ --dryrun ] <port>
+	pmaster [ --debug ] [ --progress ] [ --oneshot|-1 ] [ --interactive ] [ --dryrun ] <port>
 	pmaster [ --debug ] --current [ --exists ]
 	pmaster [ --debug ] --last
 	pmaster [ --debug ] --stats <port>|--all
@@ -552,9 +561,10 @@ if ($STATS and (scalar @pkgs > 0 or $ALL)) {	# show stats about a package
 
 Wrapper for portmaster(8) to add some functionalities, such as:
 
-- Currently port building,
-- Estimated time for a build,
-- A `world` list, as Gentoo has
+	- Currently port building,
+	- Estimated time for a build,
+	- A `world` list, as Gentoo has,
+	- An exclusion list
 
 It uses a sqlite3(1) database.
 
@@ -592,6 +602,10 @@ Help?
 
 Specify up to three times for a more detailed help.
 
+=item --interactive
+
+Ask before building port.
+
 =item --last
 
 Show last built port. Implies B<--stats>.
@@ -617,5 +631,11 @@ In Gentoo, the `world` file is a list of packages you intended to built and that
 Please note it does not keep track of package installer via pkg(8) or other package manager.
 
 =back
+
+=head1 FILES
+
+=head1 NOTES
+
+=head1 BUGS
 
 =cut
