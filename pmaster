@@ -10,12 +10,13 @@ use File::Copy;
 use DBI;
 use Sys::Syslog qw( :standard :macros );
 use Time::HiRes;
-use constant VERSION	=> '0.11';
+use constant VERSION	=> '0.12';
 
 use constant DB_FILE	=> 'pmaster.db';
 use constant DB_DIR		=> '/var/db';
 use constant DB_VERS	=> 3;
 use constant PM_OPTS	=> '-dbg';
+use constant PID_FILE	=> '/var/run/pmaster.pid';
 
 use vars qw( $HELP $EXISTS $ALL $DEBUG $CURRENT $PROGRESS $LAST $VERSION $WAIT $STATS $SHOWWORLD $ADDWORLD $RMWORLD $ONESHOT $DRYRUN $ADDEXCL $SHOWEXCL $RMEXCL $QUIET $INTERACT $FORCE);
 
@@ -379,10 +380,22 @@ sub store_stats {
 sub loop_on_me {
 	my $dbh=shift;
 	my $a=shift;
+	if ( -e PID_FILE) {
+		open(P,"cat ".PID_FILE.'|') or die "$!"; 
+		my $pid=<P>;
+		disp({msg=>'An instance of my seems to exists under pid %d',params=>[$pid]});
+		close(P);
+		return;
+	} else {
+		open(P,">".PID_FILE) or die "$!";
+		print P $$;
+		close(P);
+		$SIG{TERM}=sub {unlink PID_FILE;print "Exiting pmaster\n"; exit;};
+	}
 	while (1) {
 		if ($a) {
 			foreach my $k (keys %{$a}) {
-				my $mess=sprintf('%s:%s%% (started %ds ago)',$a->{$k}{'port'},$a->{$k}{'progress'},time()-$a->{$k}{'start_time'});
+				my $mess=sprintf('%s(%ds):%s%%',$a->{$k}{'port'},time()-$a->{$k}{'start_time'},$a->{$k}{'progress'});
 				syslog(LOG_INFO,$mess);
 			}
 		}
