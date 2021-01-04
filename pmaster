@@ -10,7 +10,7 @@ use File::Copy;
 use DBI;
 use Sys::Syslog qw( :standard :macros );
 use Time::HiRes;
-use constant VERSION	=> '0.12';
+use constant VERSION	=> '0.13';
 
 use constant DB_FILE	=> 'pmaster.db';
 use constant DB_DIR		=> '/var/db';
@@ -79,7 +79,7 @@ our %env;
 sub disp {
 	my %msg=%{shift()};
 	$msg{'prefix'}=1 if (not defined $msg{'prefix'});
-	if ($msg{'prefix'}) {
+	if ($msg{'prefix'} and $DEBUG) {
 		my $sub;
 		if (caller(1)) {
 			$sub=(split(/::/,(caller(1))[3]))[1];
@@ -89,7 +89,7 @@ sub disp {
 		my $line=(caller(0))[2];
 		$msg{'prefix'}=sprintf('['.YELLOW.'pmaster'.RESET.']('.CYAN.'%s:%s'.RESET.') ',$sub,$line);
 	} else {
-		$msg{'prefix'}='';
+		$msg{'prefix'}=sprintf('['.YELLOW.'pmaster'.RESET.'] ');
 	}
 	my $msg=sprintf('%s'.$msg{'msg'}."\n",$msg{'prefix'},@{$msg{'params'}});
 	if (-t STDOUT) {
@@ -269,39 +269,39 @@ sub get_port_deps {
 	my $dbh=shift;
 	my $origin=shift;
 	disp({msg=>'Gathering dependencies of '.BRIGHT_WHITE.'%s'.RESET,params=>[$origin]});
-	my @dependencies;
+	my %dependencies;	# origin => +/~ (add / update package)
 	open(W,"portmaster --show-work $origin |") or die "$!";
 	while (my $l=<W>) {
 		# ===>>> NOT INSTALLED            x11/libXau
 		if ($l=~/.*NOT INSTALLED.*/) {
 			$l=(split /\s+/,$l)[3];
 			disp({msg=>BRIGHT_WHITE.'%s'.RESET.' not installed, adding',params=>[$l]}) if ($DEBUG);
-			push @dependencies,($l);
+			chomp($l);
+			$dependencies{$l}='+';
 		} elsif ($l=~/===>>> Installed.*/) {
 			# ===>>> Installed ftp/curl
 			$l=(split /\s+/,$l)[2];
 			disp({msg=>BRIGHT_WHITE.'%s'.RESET.' installed, checking updates',params=>[$l]}) if ($DEBUG);
 			my $pkg_upd=`pkg version -L= -oO $l`;
-			chomp $pkg_upd;
+			chomp($pkg_upd);
 			if ($pkg_upd) {
 				$pkg_upd=~s/\s+.*//;
 				if (is_excluded($dbh,$pkg_upd)) {
 					disp({msg=>BRIGHT_WHITE.'%s'.RESET.' is installed and to be updated BUT in exclusion list',params=>[$pkg_upd]}) if ($DEBUG);
 				} else {
 					disp({msg=>BRIGHT_WHITE.'%s'.RESET.' is to be updated',params=>[$pkg_upd]}) if ($DEBUG);
-					push @dependencies,($pkg_upd) unless (is_excluded($dbh,$pkg_upd));
+					$dependencies{$pkg_upd}='~' unless (is_excluded($dbh,$pkg_upd));
 				}
 			}
 		}
 	}
 	close(W);
-	chomp(@dependencies);
-	if (scalar @dependencies gt 0) {
-		disp({msg=>BRIGHT_YELLOW.'%d'.RESET.' found',params=>[scalar @dependencies]});
+	if (scalar keys %dependencies gt 0) {
+		disp({msg=>BRIGHT_YELLOW.'%d'.RESET.' found',params=>[scalar keys %dependencies]});
 	} else {
 		disp({msg=>'None found',params=>[]});
 	}
-	return(@dependencies);
+	return(%dependencies);
 }
 # Run compilation of a port
 sub build_port {
@@ -309,10 +309,10 @@ sub build_port {
 	my $port=shift;
 	my $world=shift;
 	my %built_ports;	# Keep track of built ports, particularly those that ports depend on
-	my @dependencies=get_port_deps($dbh,$port);
-	if (scalar @dependencies gt 0) {
-		map {disp({msg=>'> '.BRIGHT_WHITE.'%s'.RESET,params=>[$_]})} @dependencies;
-		foreach my $port (@dependencies) {
+	my %dependencies=get_port_deps($dbh,$port);
+	if (scalar keys %dependencies gt 0) {
+		map {disp({msg=>BRIGHT_BLUE.$dependencies{$_}.' '.BRIGHT_WHITE.'%s'.RESET,params=>[$_]})} keys %dependencies;
+		foreach my $port (keys %dependencies) {
 			%built_ports=(%built_ports,build_port($dbh,$port,0));
 		}
 	}
@@ -395,7 +395,7 @@ sub loop_on_me {
 	while (1) {
 		if ($a) {
 			foreach my $k (keys %{$a}) {
-				my $mess=sprintf('%s(%ds):%s%%',$a->{$k}{'port'},time()-$a->{$k}{'start_time'},$a->{$k}{'progress'});
+				my $mess=sprintf('%s %ds->%s%%',$a->{$k}{'port'},time()-$a->{$k}{'start_time'},$a->{$k}{'progress'});
 				syslog(LOG_INFO,$mess);
 			}
 		}
