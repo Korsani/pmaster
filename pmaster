@@ -10,7 +10,7 @@ use File::Copy;
 use DBI;
 use Sys::Syslog qw( :standard :macros );
 use Time::HiRes;
-use constant VERSION	=> '0.13';
+use constant VERSION	=> '0.14';
 
 use constant DB_FILE	=> 'pmaster.db';
 use constant DB_DIR		=> '/var/db';
@@ -18,22 +18,22 @@ use constant DB_VERS	=> 3;
 use constant PM_OPTS	=> '-dbg';
 use constant PID_FILE	=> '/var/run/pmaster.pid';
 
-use vars qw( $HELP $EXISTS $ALL $DEBUG $CURRENT $PROGRESS $LAST $VERSION $WAIT $STATS $SHOWWORLD $ADDWORLD $RMWORLD $ONESHOT $DRYRUN $ADDEXCL $SHOWEXCL $RMEXCL $QUIET $INTERACT $FORCE);
+use vars qw( $HELP $EXISTS $DEBUG $CURRENT $PROGRESS $SHOWLAST $VERSION $WAIT $STATS $SHOWWORLD $ADDWORLD $RMWORLD $ONESHOT $DRYRUN $ADDEXCL $SHOWEXCL $RMEXCL $QUIET $INTERACT $FORCE);
 
 die "Not on FreeBSD\n" unless ("$^O" =~ "freebsd");
 
 GetOptions(
 	'add-excluded'	=> \$ADDEXCL,
 	'add-world'	=> \$ADDWORLD,
-	'all'		=> \$ALL,
 	'current'	=> \$CURRENT,
 	'debug'		=> \$DEBUG,
 	'dryrun|n'	=> \$DRYRUN,
 	'exists'	=> \$EXISTS,
 	'force'		=> \$FORCE,
-	'help+'		=> \$HELP,
+	'help:0'	=> \$HELP,
 	'interactive'=> \$INTERACT,
-	'last'		=> \$LAST,
+	'show'		=> \$STATS,
+	'show-last:1'	=> \$SHOWLAST,
 	'ls-excluded'	=> \$SHOWEXCL,
 	'ls-world'	=> \$SHOWWORLD,
 	'oneshot|1'	=> \$ONESHOT,
@@ -41,7 +41,6 @@ GetOptions(
 	'quiet'		=> \$QUIET,
 	'rm-excluded'	=> \$RMEXCL,
 	'rm-world'	=> \$RMWORLD,
-	'stats'		=> \$STATS,
 	'version'	=> \$VERSION,
 	'wait=i'	=> \$WAIT,
 );
@@ -51,7 +50,7 @@ if ($VERSION) {
 }
 
 if (defined $HELP) {
-	pod2usage(-verbose => $HELP-1);
+	pod2usage(-verbose => $HELP);
 	exit;
 }
 
@@ -237,11 +236,6 @@ sub resolve_origin {
 sub show_stats {
 	my $dbh=shift;
 	my @pkgs=@_;
-	if ($ALL) {
-		foreach my $e ($dbh->selectall_array('select origin from '.$table{'stats'}.' group by origin order by origin;')) {
-			push @pkgs,(shift @{$e});
-		}
-	}
 	# Display stats of given ports
 	foreach my $port (@pkgs) {
 		$port=~s!$env{'PORTSDIR'}/(.*)!$1!;
@@ -460,19 +454,29 @@ my @pkgs;
 if (scalar @ARGV ne 0) {
 	@pkgs=@ARGV;
 }
-if ($LAST) {
-	my $sql='select origin from '.$table{'stats'}.' order by id desc limit 1;';
+if ($SHOWLAST) {
+	my $sql=sprintf('select origin from %s group by origin order by id desc limit %d;',$table{'stats'},$SHOWLAST);
 	my @e=$dbh->selectall_array($sql);
-	push @pkgs,(shift @{shift @e});
+	foreach my $o (@e) {
+		my $p=shift @{$o};
+		push @pkgs,($p);
+	}
 	$STATS=1;
+} else {
+	# As I assume that pkgs taken from db are already clean...
+	@pkgs=resolve_origin($dbh,@pkgs);
 }
 get_make_vars($dbh);
-@pkgs=resolve_origin($dbh,@pkgs);
 
 # Just show stats of given ports
-if ($STATS and (scalar @pkgs > 0 or $ALL)) {	# show stats about a package
-	show_stats($dbh,@pkgs);
-	exit 0;
+if ($STATS) {	# show stats about a package
+	if (scalar @pkgs > 0) {
+		show_stats($dbh,@pkgs);
+		exit 0;
+	} else {
+		disp({msg=>'Nothing to show'});
+		exit 0;
+	}
 } elsif ($CURRENT) {					# Show what portmaster is currently doing
 	openlog('pmaster','ndelay,pid','local0');
 	my $a=get_cur_work($dbh);
@@ -562,13 +566,13 @@ if ($STATS and (scalar @pkgs > 0 or $ALL)) {	# show stats about a package
 =head1 SYNOPSIS
 
 	pmaster [ --debug ] [ --progress ] [ --oneshot|-1 ] [ --interactive ] [ --dryrun ] <port>
-	pmaster [ --debug ] --current [ --exists ]
-	pmaster [ --debug ] --last
-	pmaster [ --debug ] --stats <port>|--all
+	pmaster [ --debug ] [ --exists ] --current
+	pmaster [ --debug ] --show-last [ <n> ]
+	pmaster [ --debug ] --show <port>
 	pmaster [ --debug ] --wait <n>
 	pmaster [ --debug ] --ls-world | --add-world | --rm-world [ <port> ]
 	pmaster [ --debug ] --ls-excluded | --add-excluded | --rm-excluded [ <port> ]
-	pmaster --help [ --help [ --help ] ]
+	pmaster --help [ <n> ]
 
 =head1 DESCRIPTION
 
@@ -623,17 +627,18 @@ Specify up to three times for a more detailed help.
 
 Ask before building port.
 
-=item --last
-
-Show last built port. Implies B<--stats>.
-
 =item --oneshot
 
 Do not flag port as part of `world` list.
 
-=item --stats
+=item --show
 
-Show statistics about port(s), or all if B<--all> is specified.
+Show statistics about port(s).
+
+=item --show-last [ <n> ]
+
+Show last [n] built port.
+
 
 =item --wait
 
