@@ -18,31 +18,33 @@ use constant DB_VERS	=> 3;
 use constant PM_OPTS	=> '-dbg';
 use constant PID_FILE	=> '/var/run/pmaster.pid';
 
-use vars qw( $HELP $EXISTS $DEBUG $CURRENT $PROGRESS $SHOWLAST $VERSION $WAIT $STATS $SHOWWORLD $ADDWORLD $RMWORLD $ONESHOT $DRYRUN $ADDEXCL $SHOWEXCL $RMEXCL $QUIET $INTERACT $FORCE);
+use vars qw( $HELP $EXISTS $DEBUG $CURRENT $PROGRESS $SHOWLAST $VERSION $WAIT $STATS $ONESHOT $DRYRUN $QUIET $INTERACT $FORCE);
+use vars qw( $SHOWWORLD $ADDWORLD $RMWORLD );
+use vars qw( $ADDEXCL $SHOWEXCL $RMEXCL );
 
 die "Not on FreeBSD\n" unless ("$^O" =~ "freebsd");
 
 GetOptions(
 	'add-excluded'	=> \$ADDEXCL,
-	'add-world'	=> \$ADDWORLD,
-	'current'	=> \$CURRENT,
-	'debug'		=> \$DEBUG,
-	'dryrun|n'	=> \$DRYRUN,
-	'exists'	=> \$EXISTS,
-	'force'		=> \$FORCE,
-	'help:0'	=> \$HELP,
-	'interactive'=> \$INTERACT,
-	'show'		=> \$STATS,
+	'add-world'		=> \$ADDWORLD,
+	'current'		=> \$CURRENT,
+	'debug'			=> \$DEBUG,
+	'dryrun|n'		=> \$DRYRUN,
+	'exists'		=> \$EXISTS,
+	'force'			=> \$FORCE,
+	'help:0'		=> \$HELP,
+	'interactive'	=> \$INTERACT,
+	'show'			=> \$STATS,
 	'show-last:1'	=> \$SHOWLAST,
 	'ls-excluded'	=> \$SHOWEXCL,
-	'ls-world'	=> \$SHOWWORLD,
-	'oneshot|1'	=> \$ONESHOT,
-	'progress'	=> \$PROGRESS,
-	'quiet'		=> \$QUIET,
+	'ls-world'		=> \$SHOWWORLD,
+	'oneshot|1'		=> \$ONESHOT,
+	'progress'		=> \$PROGRESS,
+	'quiet'			=> \$QUIET,
 	'rm-excluded'	=> \$RMEXCL,
-	'rm-world'	=> \$RMWORLD,
-	'version'	=> \$VERSION,
-	'wait=i'	=> \$WAIT,
+	'rm-world'		=> \$RMWORLD,
+	'version'		=> \$VERSION,
+	'wait=i'		=> \$WAIT,
 );
 if ($VERSION) {
 	printf("%s\n",VERSION);
@@ -169,7 +171,9 @@ sub get_make_vars {
 			$dbh->selectall_array('insert into '.$table{'config'}.' (key,value) values ("'.$var.'","'.$value.'");');
 			$env{$var}=$value;
 		} else {
-			$env{$var}=@{ shift @res }[0];
+			my $v=@{ shift @res }[0];
+			$env{$var}=$v;
+			disp({msg=>'%s:%s',params=>[uc($var),$v]}) if ($DEBUG);
 		}
 	}
 }
@@ -212,15 +216,18 @@ sub resolve_origin {
 		if ( scalar @ports == 0) {
 			disp({msg=>'Not found by pkg(1). Searching in INDEX'}) if ($DEBUG);
 			# So it's a package I don't know about. Let's search in INDEX
-			open(I,"<$env{PORTSDIR}/INDEX-$kvers") or die "$!";
-			while (my $line = <I>) {
-				if ($line =~ /$env{PORTSDIR}\/[\w\-]*\/?$pkg\|/i) {
-					my $port=((split(/\|/,$line))[1]);
-					$port=~s/$env{PORTSDIR}\///;
-					push @ports,$port;
+			if (open(I,"<$env{PORTSDIR}/INDEX-$kvers")) {
+				while (my $line = <I>) {
+					if ($line =~ /$env{PORTSDIR}\/[\w\-]*\/?$pkg\|/i) {
+						my $port=((split(/\|/,$line))[1]);
+						$port=~s/$env{PORTSDIR}\///;
+						push @ports,$port;
+					}
 				}
+				close(I);
+			} else {
+				disp({msg=>'Problem with %s: %s',params=>["$env{PORTSDIR}/INDEX-$kvers",$!]});
 			}
-			close(I);
 		}
 		if (scalar @ports == 0) {
 			disp({msg=>'No origin found for '.BRIGHT_WHITE.'%s'.RESET,params=>[$pkg]});
@@ -454,6 +461,7 @@ my @pkgs;
 if (scalar @ARGV ne 0) {
 	@pkgs=@ARGV;
 }
+get_make_vars($dbh);
 if ($SHOWLAST) {
 	my $sql=sprintf('select origin from %s group by origin order by id desc limit %d;',$table{'stats'},$SHOWLAST);
 	my @e=$dbh->selectall_array($sql);
@@ -466,7 +474,6 @@ if ($SHOWLAST) {
 	# As I assume that pkgs taken from db are already clean...
 	@pkgs=resolve_origin($dbh,@pkgs);
 }
-get_make_vars($dbh);
 
 # Just show stats of given ports
 if ($STATS) {	# show stats about a package
