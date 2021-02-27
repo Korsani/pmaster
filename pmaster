@@ -10,7 +10,7 @@ use File::Copy;
 use DBI;
 use Sys::Syslog qw( :standard :macros );
 use Time::HiRes;
-use constant VERSION	=> '0.14.1';
+use constant VERSION	=> '0.14.2';
 
 use constant DB_FILE	=> 'pmaster.db';
 use constant DB_DIR		=> '/var/db';
@@ -23,6 +23,8 @@ use vars qw( $SHOWWORLD $ADDWORLD $RMWORLD );
 use vars qw( $ADDEXCL $SHOWEXCL $RMEXCL );
 
 die "Not on FreeBSD\n" unless ("$^O" =~ "freebsd");
+
+$SIG{TERM}=\&end;
 
 GetOptions(
 	'add-excluded'	=> \$ADDEXCL,
@@ -397,7 +399,7 @@ sub loop_on_me {
 		if ($a) {
 			foreach my $k (keys %{$a}) {
 				my $progress='[          ]';
-				substr($progress,1,int($a->{$k}{'progress'}/10),'#' x int($a->{$k}{'progress'}/10));
+				substr($progress,1,1+int($a->{$k}{'progress'}/10),'#' x (1+int($a->{$k}{'progress'}/10)));
 				my $mess=sprintf('%s %ds %s',$a->{$k}{'port'},time()-$a->{$k}{'start_time'},$progress);
 				syslog(LOG_INFO,$mess);
 			}
@@ -565,13 +567,14 @@ if ($STATS) {	# show stats about a package
 		map {disp({msg=>'- %s'.BRIGHT_WHITE.'%s'.RESET.':%s (in %is)',params=>[$built_ports{$_}{'world'}?BRIGHT_BLUE.'w'.RESET.':':'  ',$_,$built_ports{$_}{'return_code'}==0?BRIGHT_GREEN.'success'.RESET:BRIGHT_RED.'failure'.RESET,$built_ports{$_}{'time_taken'}]});} keys %built_ports;
 	}
 }
-END {
+sub end {
 	open(P,"cat ".PID_FILE.'|') or return; 
 	my $pid=<P>;
 	if ($pid eq $$) {	# My pid, so I can remove it
 		unlink PID_FILE;
 	}
 	close(P);
+	exit;
 }
 
 =pod
