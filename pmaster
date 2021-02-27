@@ -10,7 +10,7 @@ use File::Copy;
 use DBI;
 use Sys::Syslog qw( :standard :macros );
 use Time::HiRes;
-use constant VERSION	=> '0.14';
+use constant VERSION	=> '0.14.1';
 
 use constant DB_FILE	=> 'pmaster.db';
 use constant DB_DIR		=> '/var/db';
@@ -18,7 +18,7 @@ use constant DB_VERS	=> 3;
 use constant PM_OPTS	=> '-dbg';
 use constant PID_FILE	=> '/var/run/pmaster.pid';
 
-use vars qw( $HELP $EXISTS $DEBUG $CURRENT $PROGRESS $SHOWLAST $VERSION $WAIT $STATS $ONESHOT $DRYRUN $QUIET $INTERACT $FORCE);
+use vars qw( $HELP $EXISTS $DEBUG $CURRENT $PROGRESS $SHOWLAST $VERSION $WAIT $STATS $ONESHOT $DRYRUN $QUIET $INTERACT $FORCE );
 use vars qw( $SHOWWORLD $ADDWORLD $RMWORLD );
 use vars qw( $ADDEXCL $SHOWEXCL $RMEXCL );
 
@@ -314,6 +314,7 @@ sub build_port {
 	if (scalar keys %dependencies gt 0) {
 		map {disp({msg=>BRIGHT_BLUE.$dependencies{$_}.' '.BRIGHT_WHITE.'%s'.RESET,params=>[$_]})} keys %dependencies;
 		foreach my $port (keys %dependencies) {
+			# Build each dependency
 			%built_ports=(%built_ports,build_port($dbh,$port,0));
 		}
 	}
@@ -384,19 +385,20 @@ sub loop_on_me {
 	if ( -e PID_FILE) {
 		open(P,"cat ".PID_FILE.'|') or die "$!"; 
 		my $pid=<P>;
-		disp({msg=>'An instance of my seems to exists under pid %d',params=>[$pid]});
+		disp({msg=>'An instance of me seems to exists under pid %d',params=>[$pid]});
 		close(P);
 		return;
 	} else {
 		open(P,">".PID_FILE) or die "$!";
 		print P $$;
 		close(P);
-		$SIG{TERM}=sub {unlink PID_FILE;print "Exiting pmaster\n"; exit;};
 	}
 	while (1) {
 		if ($a) {
 			foreach my $k (keys %{$a}) {
-				my $mess=sprintf('%s %ds->%s%%',$a->{$k}{'port'},time()-$a->{$k}{'start_time'},$a->{$k}{'progress'});
+				my $progress='[          ]';
+				substr($progress,1,int($a->{$k}{'progress'}/10),'#' x int($a->{$k}{'progress'}/10));
+				my $mess=sprintf('%s %ds %s',$a->{$k}{'port'},time()-$a->{$k}{'start_time'},$progress);
 				syslog(LOG_INFO,$mess);
 			}
 		}
@@ -562,6 +564,14 @@ if ($STATS) {	# show stats about a package
 		disp({msg=>'Summary:'});
 		map {disp({msg=>'- %s'.BRIGHT_WHITE.'%s'.RESET.':%s (in %is)',params=>[$built_ports{$_}{'world'}?BRIGHT_BLUE.'w'.RESET.':':'  ',$_,$built_ports{$_}{'return_code'}==0?BRIGHT_GREEN.'success'.RESET:BRIGHT_RED.'failure'.RESET,$built_ports{$_}{'time_taken'}]});} keys %built_ports;
 	}
+}
+END {
+	open(P,"cat ".PID_FILE.'|') or return; 
+	my $pid=<P>;
+	if ($pid eq $$) {	# My pid, so I can remove it
+		unlink PID_FILE;
+	}
+	close(P);
 }
 
 =pod
