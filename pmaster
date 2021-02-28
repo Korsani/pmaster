@@ -10,7 +10,7 @@ use File::Copy;
 use DBI;
 use Sys::Syslog qw( :standard :macros );
 use Time::HiRes;
-use constant VERSION	=> '0.14.2';
+use constant VERSION	=> '0.14.3';
 
 use constant DB_FILE	=> 'pmaster.db';
 use constant DB_DIR		=> '/var/db';
@@ -398,9 +398,15 @@ sub loop_on_me {
 	while (1) {
 		if ($a) {
 			foreach my $k (keys %{$a}) {
-				my $progress='[          ]';
-				substr($progress,1,1+int($a->{$k}{'progress'}/10),'#' x (1+int($a->{$k}{'progress'}/10)));
-				my $mess=sprintf('%s %ds %s',$a->{$k}{'port'},time()-$a->{$k}{'start_time'},$progress);
+				my $bar='[          ]';
+				my $progress=int($a->{$k}{'progress'}/10);
+				if ($progress <= 10) {
+					substr($bar,1,$progress,'#' x $progress);
+				} else {
+					substr($bar,1,9,'#' x 9);
+					substr($bar,10,1,'+');
+				}
+				my $mess=sprintf('%s %ds %s',$a->{$k}{'port'},time()-$a->{$k}{'start_time'},$bar);
 				syslog(LOG_INFO,$mess);
 			}
 		}
@@ -663,6 +669,16 @@ Show last [n] built port.
 =item --wait
 
 Wait forever, logging to syslog every B<n> seconds what's going on.
+
+syslog message looks like:
+
+    dumb 100s [#######   ]
+
+First is the port name. Second is time it's compiling for. Third is a progress bar.
+
+If compiling time is greater that forseen time, syslog message will look like:
+
+    dumb 990s [#########+]
 
 =item --*-world (--ls-world, --add-world, --rm-world)
 
