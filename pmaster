@@ -10,7 +10,7 @@ use File::Copy;
 use DBI;
 use Sys::Syslog qw( :standard :macros );
 use Time::HiRes;
-use constant VERSION	=> '0.14.4';
+use constant VERSION	=> '0.14.5';
 
 use constant DB_FILE	=> 'pmaster.db';
 use constant DB_DIR		=> '/var/db';
@@ -382,14 +382,20 @@ sub store_stats {
 	my $sql=sprintf("insert into %s (origin,time_real,portmaster_options,mac,kernel_vers,arch,cpu_freq,memory,ccache,log_size_lines,world) values ('%s',%i,'%s','%s','%s','%s',%i,%i,%i,%i,%d);select last_insert_rowid();",$table{'stats'},$o,	$real,PM_OPTS, `uname -m| xargs echo -n`,`uname -K|xargs echo -n`,`uname -p | xargs echo -n`,`sysctl -n dev.cpu.0.freq| xargs echo -n`, `sysctl -n hw.physmem| xargs echo -n`, $env{'WITH_CCACHE_BUILD'} eq 'yes' ? 1 : 0, $lines,$world);
 	$dbh->selectall_array($sql);
 }
-sub loop_on_me {
-	my $dbh=shift;
-	my $a=shift;
+sub check_pid_file {
 	if ( -e PID_FILE) {
 		open(P,"cat ".PID_FILE.'|') or die "$!"; 
 		my $pid=<P>;
-		disp({msg=>'An instance of me seems to exists under pid %d',params=>[$pid]});
 		close(P);
+		return $pid;
+	}
+	return undef;
+}
+sub loop_on_me {
+	my $dbh=shift;
+	my $a=shift;
+	if ( my $pid=check_pid_file() ) {
+		disp({msg=>'An instance of me seems to exists under pid %d',params=>[$pid]});
 		return;
 	} else {
 		open(P,">".PID_FILE) or die "$!";
@@ -505,6 +511,9 @@ if ($STATS) {	# show stats about a package
 		foreach my $k (keys %{$a}) {
 			disp({prefix=>0,msg=>WHITE.'<'.$i++.'>'.RESET.' '.YELLOW.'%s'.RESET.":\n\t".CYAN.'Started'.RESET.": %s\n\t".CYAN.'Elapsed'.RESET.": %0is\n\t".CYAN.'ETA'.RESET.": %s\n\t".CYAN.'Progress'.RESET.": %2s%%",params=>[$a->{$k}{'port'},scalar localtime $a->{$k}{'start_time'},Time::HiRes::time()-$a->{$k}{'start_time'},($a->{$k}{'eta'} eq '?'?'?' : ($a->{$k}{'eta'}.'s ('.scalar localtime (time()+$a->{$k}{'eta'})).')'),$a->{$k}{'progress'}]});
 		}
+	}
+	if (my $pid=check_pid_file() ) {
+		disp({msg=>'A listening instance is running under pid %s',params=>[$pid]});
 	}
 } elsif ($WAIT) {
 	my $a=get_cur_work($dbh);
