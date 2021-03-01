@@ -507,6 +507,8 @@ if ($STATS) {	# show stats about a package
 } elsif ($WAIT) {
 	my $a=get_cur_work($dbh);
 	openlog('pmaster','ndelay,pid','local0');
+	exit if (my $pid = fork);
+	disp({prefix=>0,msg=>'Backgrounded',params=>[]});
 	if ($a) {
 		loop_on_me($dbh,$a);
 	} else {
@@ -689,7 +691,7 @@ Show last [n] built port.
 
 =item --wait
 
-Wait forever, logging to syslog every B<n> seconds what's going on.
+Go to background and wait forever, logging to syslog every B<n> seconds what's going on.
 
 syslog message looks like:
 
