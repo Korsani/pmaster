@@ -10,7 +10,7 @@ use File::Copy;
 use DBI;
 use Sys::Syslog qw( :standard :macros );
 use Time::HiRes;
-use constant VERSION	=> '0.14.3';
+use constant VERSION	=> '0.14.4';
 
 use constant DB_FILE	=> 'pmaster.db';
 use constant DB_DIR		=> '/var/db';
@@ -18,7 +18,7 @@ use constant DB_VERS	=> 3;
 use constant PM_OPTS	=> '-dbg';
 use constant PID_FILE	=> '/var/run/pmaster.pid';
 
-use vars qw( $HELP $EXISTS $DEBUG $CURRENT $PROGRESS $SHOWLAST $VERSION $WAIT $STATS $ONESHOT $DRYRUN $QUIET $INTERACT $FORCE );
+use vars qw( $HELP $EXISTS $DEBUG $CURRENT $PROGRESS $SHOWLAST $VERSION $WAIT $KILL $STATS $ONESHOT $DRYRUN $QUIET $INTERACT $FORCE );
 use vars qw( $SHOWWORLD $ADDWORLD $RMWORLD );
 use vars qw( $ADDEXCL $SHOWEXCL $RMEXCL );
 
@@ -36,6 +36,7 @@ GetOptions(
 	'force'			=> \$FORCE,
 	'help:0'		=> \$HELP,
 	'interactive'	=> \$INTERACT,
+	'kill'			=> \$KILL,
 	'show'			=> \$STATS,
 	'show-last:1'	=> \$SHOWLAST,
 	'ls-excluded'	=> \$SHOWEXCL,
@@ -511,6 +512,21 @@ if ($STATS) {	# show stats about a package
 	} else {
 		loop_on_me($dbh,{port=>'(idle)',progress=>'?',eta=>0});
 	}
+} elsif ($KILL) {
+	if ( ! -s PID_FILE) {
+		disp({msg=>'No pid file found',params=>[]});
+	} else {
+		open(P,'<'.PID_FILE);
+		my $pid=<P>;
+		disp({msg=>'Pid found with pid %s',params=>[$pid]}) if ($DEBUG);
+		close(P);
+		my $process=`ps $pid>/dev/null`;
+		if ($? eq 0) {
+			kill 'TERM',$pid;
+			disp({msg=>'Process %s killed',params=>[$pid]});
+		}
+	}
+	
 } elsif ($ADDEXCL) {
 	my $sql='insert into %s (origin) values ("%s")';
 	foreach my $port (@pkgs) {
@@ -596,6 +612,7 @@ sub end {
 	pmaster [ --debug ] --show-last [ <n> ]
 	pmaster [ --debug ] --show <port>
 	pmaster [ --debug ] --wait <n>
+	pmaster [ --debug ] --kill
 	pmaster [ --debug ] --ls-world | --add-world | --rm-world [ <port> ]
 	pmaster [ --debug ] --ls-excluded | --add-excluded | --rm-excluded [ <port> ]
 	pmaster --help [ <n> ]
@@ -652,6 +669,10 @@ Specify up to three times for a more detailed help.
 =item --interactive
 
 Ask before building port.
+
+=item --kill
+
+Kill a running instance of pmaster(1)
 
 =item --oneshot
 
