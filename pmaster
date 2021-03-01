@@ -650,7 +650,7 @@ Build this port with portmaster(8).
 
 =item --current
 
-Show currently building port.
+Show currently building port, and if an instance of pmaster(1) is backgrounded.
 
 Return immediately with true if a compilation is ongoing and B<--exists> is specified.
 
@@ -667,6 +667,10 @@ Does everything except building the port and writing into db.
 List / add / remove ports to the excluded list.
 
 Ports added to that list will not be updated or built.
+
+=item --exist
+
+Show if a compilation is ongoing.
 
 =item --force
 
