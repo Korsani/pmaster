@@ -396,6 +396,8 @@ sub loop_on_me {
 		print P $$;
 		close(P);
 	}
+	disp({prefix=>0,msg=>'pmaster %s backgrounded',params=>[VERSION]});
+	syslog(LOG_INFO,sprintf('pmaster %s started',VERSION));
 	while (1) {
 		if ($a) {
 			foreach my $k (keys %{$a}) {
@@ -508,7 +510,6 @@ if ($STATS) {	# show stats about a package
 	my $a=get_cur_work($dbh);
 	openlog('pmaster','ndelay,pid','local0');
 	exit if (my $pid = fork);
-	disp({prefix=>0,msg=>'pmaster %s backgrounded',params=>[VERSION]});
 	if ($a) {
 		loop_on_me($dbh,$a);
 	} else {
