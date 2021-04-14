@@ -10,7 +10,7 @@ use File::Copy;
 use DBI;
 use Sys::Syslog qw( :standard :macros );
 use Time::HiRes;
-use constant VERSION	=> '0.14.5';
+use constant VERSION	=> '0.14.6';
 
 use constant DB_FILE	=> 'pmaster.db';
 use constant DB_DIR		=> '/var/db';
@@ -293,7 +293,7 @@ sub get_port_deps {
 				if (is_excluded($dbh,$pkg_upd)) {
 					disp({msg=>BRIGHT_WHITE.'%s'.RESET.' is installed and to be updated BUT in exclusion list',params=>[$pkg_upd]}) if ($DEBUG);
 				} else {
-					disp({msg=>BRIGHT_WHITE.'%s'.RESET.' is to be updated',params=>[$pkg_upd]}) if ($DEBUG);
+					disp({msg=>BRIGHT_WHITE.'%s'.RESET.' is installed',params=>[$pkg_upd]}) if ($DEBUG);
 					$dependencies{$pkg_upd}='~' unless (is_excluded($dbh,$pkg_upd));
 				}
 			}
@@ -332,9 +332,9 @@ sub build_port {
 		return(());
 	}
 	if ($INTERACT) {
+		my $flush=<STDIN>;
 		disp({msg=>'Ready? (Yn)'});
-		my $r=<STDIN>;
-		chomp $r;
+		chomp(my $r=<STDIN>);
 		return(()) if ($r=~/^n.*/i);
 	}	
 	# If line size is available and progress is asked
@@ -346,6 +346,7 @@ sub build_port {
 	} else {
 		$lines=0;
 		open(P,'portmaster --no-confirm '.PM_OPTS.' '.$port.'|') or $ec=1;
+		disp({msg=>'Running %s',params=>['portmaster --no-confirm '.PM_OPTS.' '.$port]}) if ($DEBUG);
 		while(<P>) {
 			$lines++;
 			print;
