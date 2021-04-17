@@ -420,7 +420,7 @@ sub loop_on_me {
 					substr($bar,1,$lbar-1,'#' x ($lbar-1));
 					substr($bar,$lbar,1,'+');
 				}
-				my $mess=sprintf('%s %4ss %s',$a->{$k}{'port'},time()-$a->{$k}{'start_time'},$bar);
+				my $mess=sprintf('%s %4ss %s %ss',$a->{$k}{'port'},time()-$a->{$k}{'start_time'},$bar,$a->{$k}{'eta'});
 				syslog(LOG_INFO,$mess);
 			}
 		}
