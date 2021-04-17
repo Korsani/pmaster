@@ -10,7 +10,7 @@ use File::Copy;
 use DBI;
 use Sys::Syslog qw( :standard :macros );
 use Time::HiRes;
-use constant VERSION	=> '0.14.6';
+use constant VERSION	=> '0.14.7';
 
 use constant DB_FILE	=> 'pmaster.db';
 use constant DB_DIR		=> '/var/db';
@@ -408,15 +408,19 @@ sub loop_on_me {
 	while (1) {
 		if ($a) {
 			foreach my $k (keys %{$a}) {
-				my $bar='[          ]';
-				my $progress=int($a->{$k}{'progress'}/10);
-				if ($progress <= 10) {
+				my $bar='[....................]';
+				my $lbar=length($bar)-2;
+				my $progress=0;
+				if ($a->{$k}{'progress'} ne '?') {
+					$progress=int($a->{$k}{'progress'}*$lbar/100);
+				}
+				if ($progress <= $lbar) {
 					substr($bar,1,$progress,'#' x $progress);
 				} else {
-					substr($bar,1,9,'#' x 9);
-					substr($bar,10,1,'+');
+					substr($bar,1,$lbar-1,'#' x ($lbar-1));
+					substr($bar,$lbar,1,'+');
 				}
-				my $mess=sprintf('%s %ds %s',$a->{$k}{'port'},time()-$a->{$k}{'start_time'},$bar);
+				my $mess=sprintf('%s %4ss %s',$a->{$k}{'port'},time()-$a->{$k}{'start_time'},$bar);
 				syslog(LOG_INFO,$mess);
 			}
 		}
