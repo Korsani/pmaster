@@ -18,6 +18,7 @@ use constant DB_VERS		=> 3;
 use constant PM_OPTS		=> '-dbg';
 use constant PID_FILE		=> '/var/run/pmaster.pid';
 use constant E_NO_PORTS_DIR	=> 1;
+use constant E_DEPENDENCY	=> 1;
 
 use vars qw( $HELP $EXISTS $DEBUG $CURRENT $PROGRESS $SHOWLAST $VERSION $WAIT $KILL $STATS $ONESHOT $DRYRUN $QUIET $INTERACT $FORCE );
 use vars qw( $SHOWWORLD $ADDWORLD $RMWORLD );
@@ -108,6 +109,10 @@ sub preflight_check {
 	my $dbh=shift;
 	get_make_vars($dbh);
 	check_db($dbh);
+	if (not `pkg info -e portmaster`) {
+		disp({msg=>BRIGHT_WHITE."portmaster(8)".RESET." not installed"});
+		exit E_DEPENDENCY;
+	}
 }
 sub check_db_tbl {
 	my $dbh=shift;
