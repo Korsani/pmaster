@@ -10,7 +10,7 @@ use File::Copy;
 use DBI;
 use Sys::Syslog qw( :standard :macros );
 use Time::HiRes;
-use constant VERSION	=> '0.14.7';
+use constant VERSION	=> '0.14.8';
 
 use constant DB_FILE	=> 'pmaster.db';
 use constant DB_DIR		=> '/var/db';
@@ -102,6 +102,11 @@ sub disp {
 		print(colorstrip($msg));
 	}
 }
+sub preflight_check {
+	my $dbh=shift;
+	get_make_vars($dbh);
+	check_db($dbh);
+}
 sub check_db_tbl {
 	my $dbh=shift;
 	# Let's check if tables exists
@@ -156,10 +161,13 @@ sub get_make_var {
 	my $uvar=uc($var);
 	my $fh=File::Temp->new();
 	print $fh "CATEGORIES=devel\n.include <bsd.port.mk>\ninfo:\n\t\@echo ".$uvar."=\$(".$uvar.")";
-	open(M,'make -f '.$fh->filename.' info|') or die "$!";
+	open(M,'make -f '.$fh->filename.' info 2>&1|') or die "$!";
 	while (my $line=<M>) {
 		if ($line=~/^$uvar=(.*)/) {
 			return $1;
+		} else {
+			disp({msg=>'Somethibg went wrong. Ports tree not installed?'});
+			exit 2;
 		}
 	}
 }
@@ -477,7 +485,7 @@ sub list_world {
 my $dbh=DBI->connect($DSN,'','',{RaiseError => 1}) or die $DBI::errstr;
 disp({msg=>"Database:%s",params=>[$DSN]}) if ($DEBUG);
 
-check_db($dbh);
+preflight_check($dbh);
 
 # == let's run
 
@@ -485,7 +493,6 @@ my @pkgs;
 if (scalar @ARGV ne 0) {
 	@pkgs=@ARGV;
 }
-get_make_vars($dbh);
 if ($SHOWLAST) {
 	my $sql=sprintf('select origin from %s group by origin order by id desc limit %d;',$table{'stats'},$SHOWLAST);
 	my @e=$dbh->selectall_array($sql);
