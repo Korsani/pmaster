@@ -12,11 +12,12 @@ use Sys::Syslog qw( :standard :macros );
 use Time::HiRes;
 use constant VERSION	=> '0.14.8';
 
-use constant DB_FILE	=> 'pmaster.db';
-use constant DB_DIR		=> '/var/db';
-use constant DB_VERS	=> 3;
-use constant PM_OPTS	=> '-dbg';
-use constant PID_FILE	=> '/var/run/pmaster.pid';
+use constant DB_FILE		=> 'pmaster.db';
+use constant DB_DIR			=> '/var/db';
+use constant DB_VERS		=> 3;
+use constant PM_OPTS		=> '-dbg';
+use constant PID_FILE		=> '/var/run/pmaster.pid';
+use constant E_NO_PORTS_DIR	=> 1;
 
 use vars qw( $HELP $EXISTS $DEBUG $CURRENT $PROGRESS $SHOWLAST $VERSION $WAIT $KILL $STATS $ONESHOT $DRYRUN $QUIET $INTERACT $FORCE );
 use vars qw( $SHOWWORLD $ADDWORLD $RMWORLD );
@@ -25,6 +26,7 @@ use vars qw( $ADDEXCL $SHOWEXCL $RMEXCL );
 die "Not on FreeBSD\n" unless ("$^O" =~ "freebsd");
 
 $SIG{TERM}=\&end;
+
 
 GetOptions(
 	'add-excluded'	=> \$ADDEXCL,
@@ -167,7 +169,7 @@ sub get_make_var {
 			return $1;
 		} else {
 			disp({msg=>'Somethibg went wrong. Ports tree not installed?'});
-			exit 2;
+			exit E_NO_PORTS_DIR;
 		}
 	}
 }
@@ -739,7 +741,13 @@ Please note it does not keep track of package installer via pkg(8) or other pack
 
 =back
 
+=head1 EXIT STATUS
+
+1 if ports tree does not exists.
+
 =head1 FILES
+
+C</var/db/pmaster.db> : the sqlite3(1) database file.
 
 =head1 NOTES
 
