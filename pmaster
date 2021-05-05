@@ -109,7 +109,7 @@ sub preflight_check {
 	my $dbh=shift;
 	get_make_vars($dbh);
 	check_db($dbh);
-	if (not `pkg info -e portmaster`) {
+	if (`pkg info -e portmaster`) {
 		disp({msg=>BRIGHT_WHITE."portmaster(8)".RESET." not installed"});
 		exit E_DEPENDENCY;
 	}
@@ -266,7 +266,7 @@ sub show_stats {
 		$port=~s!$env{'PORTSDIR'}/(.*)!$1!;
 		my $sql='select timestamp,time_real from '.$table{'stats'}.' where origin="'.$port.'"';
 		my @res=$dbh->selectall_array($sql);
-		if (scalar @res > 0) {	
+		if (scalar @res > 0) {
 			my @times;
 			foreach my $e (@res) {
 				push @times,(join(' => ',@{ $e }));
@@ -340,8 +340,8 @@ sub build_port {
 	# Returns [ [ id, field ] [ ... ] ]
 	# And I want the field of the last element
 	my $lines=@{ $a[-1]}[1];
-	my $time=get_port_stats($dbh,$port)||'?';
-	disp({msg=>'Building '.BRIGHT_WHITE.'%s'.RESET.' (~'.BRIGHT_WHITE.'%s'.RESET.'s)',params=>[$port,$time]});
+	my $time=get_port_stats($dbh,$port)||'0';
+	disp({msg=>'Building '.BRIGHT_WHITE.'%s'.RESET.' (~'.BRIGHT_WHITE.'%.0f'.RESET.'s)',params=>[$port,$time]});
 	if ($DRYRUN) {
 		disp({msg=>'Dry run asked'});
 		return(());
@@ -351,7 +351,7 @@ sub build_port {
 		disp({msg=>'Ready? (Yn)'});
 		chomp(my $r=<STDIN>);
 		return(()) if ($r=~/^n.*/i);
-	}	
+	}
 	# If line size is available and progress is asked
 	my $start=Time::HiRes::time();
 	my $ec=0;
@@ -400,7 +400,7 @@ sub store_stats {
 }
 sub check_pid_file {
 	if ( -e PID_FILE) {
-		open(P,"cat ".PID_FILE.'|') or die "$!"; 
+		open(P,"cat ".PID_FILE.'|') or die "$!";
 		my $pid=<P>;
 		close(P);
 		return $pid;
@@ -557,7 +557,6 @@ if ($STATS) {	# show stats about a package
 			disp({msg=>'Process %s killed',params=>[$pid]});
 		}
 	}
-	
 } elsif ($ADDEXCL) {
 	my $sql='insert into %s (origin) values ("%s")';
 	foreach my $port (@pkgs) {
@@ -586,7 +585,7 @@ if ($STATS) {	# show stats about a package
 			# Display only installed ports
 			disp({prefix=>0,msg=>'%s',params=>[$port]}) if ($?==0);
 		}
-	} 
+	}
 } elsif ($RMWORLD) {
 	foreach my $port (@pkgs) {
 		my $sql='update %s set world=false where origin="%s"';
@@ -621,7 +620,7 @@ if ($STATS) {	# show stats about a package
 	}
 }
 sub end {
-	open(P,"cat ".PID_FILE.'|') or return; 
+	open(P,"cat ".PID_FILE.'|') or return;
 	my $pid=<P>;
 	if ($pid eq $$) {	# My pid, so I can remove it
 		unlink PID_FILE;
@@ -728,13 +727,13 @@ Go to background and wait forever, logging to syslog every B<n> seconds what's g
 
 syslog message looks like:
 
-    dumb 100s [#######   ]
+	dumb 100s [#######   ]
 
 First is the port name. Second is time it's compiling for. Third is a progress bar.
 
 If compiling time is greater that forseen time, syslog message will look like:
 
-    dumb 990s [#########+]
+	dumb 990s [#########+]
 
 =item --*-world (--ls-world, --add-world, --rm-world)
 
