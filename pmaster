@@ -2,15 +2,16 @@
 use warnings;
 use strict;
 use Data::Dumper;
-use Term::ANSIColor qw(:constants colorstrip);
-use File::Temp;
-use Pod::Usage;
-use Getopt::Long;
-use File::Copy;
 use DBI;
+use File::Temp;
+use File::Copy;
+use Getopt::Long;
+use Pod::Usage;
 use Sys::Syslog qw( :standard :macros );
+use Term::ANSIColor qw(:constants colorstrip);
+use Term::ReadKey;
 use Time::HiRes;
-use constant VERSION	=> '0.14.8';
+use constant VERSION	=> '0.14.9';
 
 use constant DB_FILE		=> 'pmaster.db';
 use constant DB_DIR			=> '/var/db';
@@ -347,7 +348,8 @@ sub build_port {
 		return(());
 	}
 	if ($INTERACT) {
-		my $flush=<STDIN>;
+		# Flush STDIN
+		ReadMode 3; while( defined( my $r = ReadKey(-1) ) ) {}; ReadMode 0;
 		disp({msg=>'Ready? (Yn)'});
 		chomp(my $r=<STDIN>);
 		return(()) if ($r=~/^n.*/i);
