@@ -618,7 +618,7 @@ if ($STATS) {	# show stats about a package
 	}
 	if (scalar keys %built_ports > 0) {
 		disp({msg=>'Summary:'});
-		map {disp({msg=>'- %s'.BRIGHT_WHITE.'%s'.RESET.':%s (in %is)',params=>[$built_ports{$_}{'world'}?BRIGHT_BLUE.'w'.RESET.':':'  ',$_,$built_ports{$_}{'return_code'}==0?BRIGHT_GREEN.'success'.RESET:BRIGHT_RED.'failure'.RESET,$built_ports{$_}{'time_taken'}]});} keys %built_ports;
+		map {disp({msg=>'- %s%s:'.BRIGHT_WHITE.'%s'.RESET.' (in %is)',params=>[$built_ports{$_}{'world'}?BRIGHT_BLUE.'w'.RESET.':':'  ',$built_ports{$_}{'return_code'}==0?BRIGHT_GREEN.'success'.RESET:BRIGHT_RED.'failure'.RESET,$_,$built_ports{$_}{'time_taken'}]});} keys %built_ports;
 	}
 }
 sub end {
