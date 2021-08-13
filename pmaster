@@ -11,7 +11,7 @@ use Sys::Syslog qw( :standard :macros );
 use Term::ANSIColor qw(:constants colorstrip);
 use Term::ReadKey;
 use Time::HiRes;
-use constant VERSION	=> '0.14.9';
+use constant VERSION	=> '0.14.10';
 
 use constant DB_FILE		=> 'pmaster.db';
 use constant DB_DIR			=> '/var/db';
@@ -38,7 +38,7 @@ GetOptions(
 	'dryrun|n'		=> \$DRYRUN,
 	'exists'		=> \$EXISTS,
 	'force'			=> \$FORCE,
-	'help:0'		=> \$HELP,
+	'help+'			=> \$HELP,
 	'interactive'	=> \$INTERACT,
 	'kill'			=> \$KILL,
 	'show'			=> \$STATS,
@@ -59,7 +59,7 @@ if ($VERSION) {
 }
 
 if (defined $HELP) {
-	pod2usage(-verbose => $HELP);
+	pod2usage(-verbose => $HELP-1);
 	exit;
 }
 
@@ -647,7 +647,7 @@ sub end {
 	pmaster [ --debug ] --kill
 	pmaster [ --debug ] --ls-world | --add-world | --rm-world [ <port> ]
 	pmaster [ --debug ] --ls-excluded | --add-excluded | --rm-excluded [ <port> ]
-	pmaster --help [ <n> ]
+	pmaster --help [ --help [ --help ] ]
 
 =head1 DESCRIPTION
 
