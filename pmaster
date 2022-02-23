@@ -11,7 +11,8 @@ use Sys::Syslog qw( :standard :macros );
 use Term::ANSIColor qw(:constants colorstrip);
 use Term::ReadKey;
 use Time::HiRes;
-use constant VERSION	=> '0.14.10';
+use POSIX qw(strftime);
+use constant VERSION	=> '0.14.11';
 
 use constant DB_FILE		=> 'pmaster.db';
 use constant DB_DIR			=> '/var/db';
@@ -20,8 +21,9 @@ use constant PM_OPTS		=> '-dbg';
 use constant PID_FILE		=> '/var/run/pmaster.pid';
 use constant E_NO_PORTS_DIR	=> 1;
 use constant E_DEPENDENCY	=> 1;
+use constant TS_TODAY		=> strftime "%Y-%m-%d", localtime;;
 
-use vars qw( $HELP $EXISTS $DEBUG $CURRENT $PROGRESS $SHOWLAST $VERSION $WAIT $KILL $STATS $ONESHOT $DRYRUN $QUIET $INTERACT $FORCE );
+use vars qw( $HELP $EXISTS $DEBUG $CURRENT $PROGRESS $SHOWDATE $SHOWLAST $VERSION $WAIT $KILL $STATS $ONESHOT $DRYRUN $QUIET $INTERACT $FORCE );
 use vars qw( $SHOWWORLD $ADDWORLD $RMWORLD );
 use vars qw( $ADDEXCL $SHOWEXCL $RMEXCL );
 
@@ -43,6 +45,7 @@ GetOptions(
 	'kill'			=> \$KILL,
 	'show'			=> \$STATS,
 	'show-last:1'	=> \$SHOWLAST,
+	'show-date=s'	=> \$SHOWDATE,
 	'ls-excluded'	=> \$SHOWEXCL,
 	'ls-world'		=> \$SHOWWORLD,
 	'oneshot|1'		=> \$ONESHOT,
@@ -261,9 +264,10 @@ sub resolve_origin {
 }
 sub show_stats {
 	my $dbh=shift;
-	my @pkgs=@_;
+	my $pkgs=shift;
+	my $raw=shift||0;
 	# Display stats of given ports
-	foreach my $port (@pkgs) {
+	foreach my $port (@{ $pkgs }) {
 		$port=~s!$env{'PORTSDIR'}/(.*)!$1!;
 		my $sql='select timestamp,time_real from '.$table{'stats'}.' where origin="'.$port.'"';
 		my @res=$dbh->selectall_array($sql);
@@ -272,7 +276,11 @@ sub show_stats {
 			foreach my $e (@res) {
 				push @times,(join(' => ',@{ $e }));
 			}
-			disp({prefix=>0,msg=>YELLOW.'%s'.RESET.":\n\t".CYAN."Average duration:".RESET." %0is\n\t".CYAN."Series: \n".RESET."%s",params=>[$port,get_port_stats($dbh,$port),join("\n",@times)]});
+			unless ($raw) {
+				disp({prefix=>0,msg=>YELLOW.'%s'.RESET.":\n\t".CYAN."Average duration:".RESET." %0is\n\t".CYAN."Series: \n".RESET."%s",params=>[$port,get_port_stats($dbh,$port),join("\n",@times)]});
+			} else {
+				disp({prefix=>0,msg=>YELLOW.'%s'.RESET,params=>[$port]});
+			}
 		}
 	}
 }
@@ -509,22 +517,23 @@ if ($SHOWLAST) {
 		my $p=shift @{$o};
 		push @pkgs,($p);
 	}
-	$STATS=1;
+	show_stats($dbh,\@pkgs,0);
+	exit;
+} elsif ($SHOWDATE) {
+	my $sql=sprintf('select origin from %s where datetime(timestamp)>"%s 00:00:00" and datetime(timestamp)<"%s 23:59:59" order by timestamp desc;',$table{'stats'},$SHOWDATE,$SHOWDATE);
+	my @e=$dbh->selectall_array($sql);
+	foreach my $o (@e) {
+		my $p=shift @{$o};
+		push @pkgs,($p);
+	}
+	show_stats($dbh,\@pkgs,1);
+	exit;
 } else {
 	# As I assume that pkgs taken from db are already clean...
 	@pkgs=resolve_origin($dbh,@pkgs);
 }
 
-# Just show stats of given ports
-if ($STATS) {	# show stats about a package
-	if (scalar @pkgs > 0) {
-		show_stats($dbh,@pkgs);
-		exit 0;
-	} else {
-		disp({msg=>'Nothing to show'});
-		exit 0;
-	}
-} elsif ($CURRENT) {					# Show what portmaster is currently doing
+if ($CURRENT) {					# Show what portmaster is currently doing
 	openlog('pmaster','ndelay,pid','local0');
 	my $a=get_cur_work($dbh);
 	if ($a) {
@@ -642,6 +651,7 @@ sub end {
 	pmaster [ --debug ] [ --progress ] [ --oneshot|-1 ] [ --interactive ] [ --dryrun ] <port>
 	pmaster [ --debug ] [ --exists ] --current
 	pmaster [ --debug ] --show-last [ <n> ]
+	pmaster [ --debug ] --show-date=YYYY-MM-DD
 	pmaster [ --debug ] --show <port>
 	pmaster [ --debug ] --wait <n>
 	pmaster [ --debug ] --kill
@@ -717,6 +727,10 @@ Do not flag port as part of `world` list.
 =item --show
 
 Show statistics about port(s).
+
+=item --show-date=YYYY-MM-DD
+
+Show ports compiled that date.
 
 =item --show-last [ <n> ]
 
