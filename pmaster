@@ -12,7 +12,7 @@ use Term::ANSIColor qw(:constants colorstrip);
 use Term::ReadKey;
 use Time::HiRes;
 use POSIX qw(strftime);
-use constant VERSION	=> '0.14.11';
+use constant VERSION	=> '0.14.12';
 
 use constant DB_FILE		=> 'pmaster.db';
 use constant DB_DIR			=> '/var/db';
@@ -611,6 +611,8 @@ if ($CURRENT) {					# Show what portmaster is currently doing
 		$sql=sprintf($sql,$table{'stats'},$port);
 		$dbh->selectall_array($sql);
 	}
+} elsif ($STATS) {
+	show_stats($dbh,\@pkgs,0);
 } else {		# Compile ports
 	my %built_ports;
 	if (scalar @pkgs == 0) {
