@@ -12,7 +12,7 @@ use Term::ANSIColor qw(:constants colorstrip);
 use Term::ReadKey;
 use Time::HiRes;
 use POSIX qw(strftime);
-use constant VERSION	=> '0.14.12';
+use constant VERSION	=> '0.14.13';
 
 use constant DB_FILE		=> 'pmaster.db';
 use constant DB_DIR			=> '/var/db';
@@ -445,7 +445,8 @@ sub loop_on_me {
 					substr($bar,1,$lbar-1,'#' x ($lbar-1));
 					substr($bar,$lbar,1,'+');
 				}
-				my $mess=sprintf('%s %4ss %s %ss',$a->{$k}{'port'},time()-$a->{$k}{'start_time'},$bar,$a->{$k}{'eta'});
+				#my $mess=sprintf('%s %4ss %s %ss',$a->{$k}{'port'},time()-$a->{$k}{'start_time'},$bar,$a->{$k}{'eta'});
+				my $mess=sprintf('%s %4ss %s %ss',$a->{$k}{'port'},time()-$a->{$k}{'start_time'},$bar,$a->{$k}{'time_total'});
 				syslog(LOG_INFO,$mess);
 			}
 		}
@@ -475,11 +476,12 @@ sub get_cur_work {
 			# When base dir has been created?
 			my @stats=stat($env{'WRKDIRPREFIX'}.$env{'PORTSDIR'}.'/'.$port);
 			my $eta='?';my $progress='?';
-			if (my $time = get_port_stats($dbh,$port)) {
+			my $time;
+			if ($time = get_port_stats($dbh,$port)) {
 				$eta=sprintf('%0i',$time-(Time::HiRes::time()-$stats[10]));
 				$progress=sprintf('%2i',($time-$eta)/$time*100);
 			}
-			$res{$port}={port=>$port,start_time=>$stats[10],eta=>$eta,progress=>$progress};
+			$res{$port}={port=>$port,start_time=>$stats[10],eta=>$eta,progress=>$progress,time_total=>$time};
 		} else {
 			disp({msg=>'No process seems to handle compilation in '.BRIGHT_WHITE.'%s'.RESET,params=>[$w]}) if ($DEBUG);
 		}
