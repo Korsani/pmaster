@@ -12,7 +12,7 @@ use Term::ANSIColor qw(:constants colorstrip);
 use Term::ReadKey;
 use Time::HiRes;
 use POSIX qw(strftime);
-use constant VERSION	=> '0.14.13';
+use constant VERSION	=> '1.14.13';
 
 use constant DB_FILE		=> 'pmaster.db';
 use constant DB_DIR			=> '/var/db';
@@ -446,7 +446,7 @@ sub loop_on_me {
 					substr($bar,$lbar,1,'+');
 				}
 				#my $mess=sprintf('%s %4ss %s %ss',$a->{$k}{'port'},time()-$a->{$k}{'start_time'},$bar,$a->{$k}{'eta'});
-				my $mess=sprintf('%s %4ss %s %ss',$a->{$k}{'port'},time()-$a->{$k}{'start_time'},$bar,$a->{$k}{'time_total'});
+				my $mess=sprintf('%s %4ss %s %.0fs',$a->{$k}{'port'},time()-$a->{$k}{'start_time'},$bar,$a->{$k}{'time_total'});
 				syslog(LOG_INFO,$mess);
 			}
 		}
