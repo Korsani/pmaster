@@ -12,7 +12,7 @@ use Term::ANSIColor qw(:constants colorstrip);
 use Term::ReadKey;
 use Time::HiRes;
 use POSIX qw(strftime);
-use constant VERSION	=> '1.14.13';
+use constant VERSION	=> '1.15';
 
 use constant DB_FILE		=> 'pmaster.db';
 use constant DB_DIR			=> '/var/db';
@@ -86,7 +86,7 @@ my %update_table=(
 );
 
 our %env;
-
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 sub disp {
 	my %msg=%{shift()};
 	$msg{'prefix'}=1 if (not defined $msg{'prefix'});
@@ -108,6 +108,21 @@ sub disp {
 	} else {
 		print(colorstrip($msg));
 	}
+}
+sub s2dhms($) {
+	my $s=shift;
+	my $sign='';
+	$sign='-' if ($s<0);
+	$s=abs($s);
+	my $d=int($s/86400);$s%=86400;
+	my $h=int($s/3600);$s%=3600;
+	my $min=int($s/60);$s%=60;
+	my $dhms;
+	$dhms.=$d?$d."d":'';
+	$dhms.=$h?$h."h":'';
+	$dhms.=$min?$min."min":'';
+	$dhms.=$s?$s."s":'';
+	return $sign.$dhms;
 }
 sub preflight_check {
 	my $dbh=shift;
@@ -445,8 +460,7 @@ sub loop_on_me {
 					substr($bar,1,$lbar-1,'#' x ($lbar-1));
 					substr($bar,$lbar,1,'+');
 				}
-				#my $mess=sprintf('%s %4ss %s %ss',$a->{$k}{'port'},time()-$a->{$k}{'start_time'},$bar,$a->{$k}{'eta'});
-				my $mess=sprintf('%s %4ss %s %.0fs',$a->{$k}{'port'},time()-$a->{$k}{'start_time'},$bar,$a->{$k}{'time_total'});
+				my $mess=sprintf('%s %s %s %s',$a->{$k}{'port'},s2dhms(time()-$a->{$k}{'start_time'}),$bar,s2dhms($a->{$k}{'time_total'}));
 				syslog(LOG_INFO,$mess);
 			}
 		}
@@ -541,7 +555,7 @@ if ($CURRENT) {					# Show what portmaster is currently doing
 	if ($a) {
 		my $i=1;
 		foreach my $k (keys %{$a}) {
-			disp({prefix=>0,msg=>WHITE.'<'.$i++.'>'.RESET.' '.YELLOW.'%s'.RESET.":\n\t".CYAN.'Started'.RESET.": %s\n\t".CYAN.'Elapsed'.RESET.": %0is\n\t".CYAN.'ETA'.RESET.": %s\n\t".CYAN.'Progress'.RESET.": %2s%%",params=>[$a->{$k}{'port'},scalar localtime $a->{$k}{'start_time'},Time::HiRes::time()-$a->{$k}{'start_time'},($a->{$k}{'eta'} eq '?'?'?' : ($a->{$k}{'eta'}.'s ('.scalar localtime (time()+$a->{$k}{'eta'})).')'),$a->{$k}{'progress'}]});
+			disp({prefix=>0,msg=>WHITE.'<'.$i++.'>'.RESET.' '.YELLOW.'%s'.RESET.":\n\t".CYAN.'Started'.RESET.": %s\n\t".CYAN.'Elapsed'.RESET.": %s\n\t".CYAN.'ETA'.RESET.": %s\n\t".CYAN.'Progress'.RESET.": %2s%%",params=>[$a->{$k}{'port'},scalar localtime $a->{$k}{'start_time'},s2dhms(Time::HiRes::time()-$a->{$k}{'start_time'}),($a->{$k}{'eta'} eq '?'?'?' : (s2dhms($a->{$k}{'eta'}).' ('.scalar localtime (time()+$a->{$k}{'eta'})).')'),$a->{$k}{'progress'}]});
 		}
 	}
 	if (my $pid=check_pid_file() ) {
